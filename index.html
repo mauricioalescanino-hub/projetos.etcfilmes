@@ -305,7 +305,7 @@ function App() {
   const [error,       setError]       = useState(null);
   const [view,        setView]        = useState("lista");
   const [filters,     setFilters]     = useState({area:"",okr:"",classificacao:"",status:"",prioridade:"",cluster:""});
-  const [detail,      setDetail]      = useState(null);
+  const [detailId,    setDetailId]    = useState(null);
   const [detailTab,   setDetailTab]   = useState("iniciativa");
   const [cModal,      setCModal]      = useState(false);
   const [newC,        setNewC]        = useState({nome:"",descricao:"",cor:CLR_CLUST[0]});
@@ -344,7 +344,7 @@ function App() {
     try {
       await supa("iniciativas?id=eq."+id, {method:"PATCH",body:fields});
       setIniciativas(p=>p.map(i=>i.id===id?{...i,...fields}:i));
-      if (detail?.id===id) setDetail(p=>({...p,...fields}));
+      
     } catch(e) { alert("Erro: "+e.message); }
     finally { setSaving(null); }
   };
@@ -372,7 +372,7 @@ function App() {
       const geradaEm = new Date().toISOString();
       await supa("iniciativas?id=eq."+ini.id,{method:"PATCH",body:{analise_canvas:parsed,analise_gerada_em:geradaEm}});
       setIniciativas(p=>p.map(i=>i.id===ini.id?{...i,analise_canvas:parsed,analise_gerada_em:geradaEm}:i));
-      if (detail?.id===ini.id) setDetail(p=>({...p,analise_canvas:parsed,analise_gerada_em:geradaEm}));
+      
     } catch(e) { alert("Erro ao gerar analise:\n\n"+e.message); }
     finally { setAnalisando(null); }
   };
@@ -435,6 +435,8 @@ function App() {
   };
 
   const getCluster = (id) => clusters.find(c=>c.id===id);
+  /* detail é sempre derivado do array — garante re-render automático após patch */
+  const detail = detailId ? iniciativas.find(i=>i.id===detailId) || null : null;
   const filtered = useMemo(()=>iniciativas.filter(i=>{
     if (filters.area          && i.area!==filters.area)                      return false;
     if (filters.okr           && i.okr!==filters.okr)                        return false;
@@ -471,7 +473,7 @@ function App() {
     const ss  = STA[ini.status]         || STA.Backlog;
     return html`
       <div class="card" style=${cl ? "border-left:3px solid "+cl.cor : ""}
-        onClick=${()=>{ setDetail(ini); setDetailTab("iniciativa"); setExpanded(null); }}>
+        onClick=${()=>{ setDetailId(ini.id); setDetailTab("iniciativa"); setExpanded(null); }}>
         <div class="flex items-start justify-between gap-2">
           <div class="flex items-center gap-1.5">
             <span class="text-xs font-mono font-bold" style="color:#9193A0">#${String(ini.num).padStart(2,"0")}</span>
@@ -674,7 +676,7 @@ function App() {
 
       <!-- DETAIL MODAL -->
       ${detail ? html`
-        <div class="modal-overlay" onClick=${()=>setDetail(null)}>
+        <div class="modal-overlay" onClick=${()=>setDetailId(null)}>
           <div class="modal-box" style="max-width:640px" onClick=${e=>e.stopPropagation()}>
 
             <!-- modal header -->
@@ -686,7 +688,7 @@ function App() {
                   <span class="pill" style="background:#F1F5F9;color:#4A4A4A;border-color:#E8ECF1;font-size:11px">${detail.area}</span>
                   <span class="pill" style="background:#F7F9FC;color:#9193A0;border-color:#E8ECF1;font-size:11px;font-family:monospace">#${String(detail.num).padStart(2,"0")}</span>
                 </div>
-                <button onClick=${()=>setDetail(null)}
+                <button onClick=${()=>setDetailId(null)}
                   style="background:none;border:none;cursor:pointer;color:#C0C4CC;margin-left:12px;flex-shrink:0;padding:4px">
                   ${IconX(18)}
                 </button>
@@ -744,15 +746,19 @@ function App() {
                         <span style="color:#1C1C1C;font-size:13px;flex:1">${getCluster(detail.cluster_id).nome}</span>
                         <button onClick=${()=>patch(detail.id,{cluster_id:null})}
                           style="color:#9193A0;font-size:11px;font-weight:600;cursor:pointer;border:none;background:none">remover</button>
-                      </div>` : clusters.length===0 ? html`
-                      <p style="color:#9193A0;font-size:12px">Nenhum cluster criado ainda.</p>` : html`
+                      </div>
+                    ` : clusters.length===0 ? html`
+                      <p style="color:#9193A0;font-size:12px">Nenhum cluster criado ainda.</p>
+                    ` : html`
                       <div class="flex flex-wrap gap-2">
                         ${clusters.map(c=>html`
                           <button key=${c.id} onClick=${()=>patch(detail.id,{cluster_id:c.id})}
                             class="flex items-center gap-1.5 choice-btn">
                             <span class="rounded-full" style=${"width:7px;height:7px;background:"+c.cor+";display:inline-block"}></span>
                             ${c.nome}
-                          </button>`)}`}
+                          </button>`)}
+                      </div>
+                    `}
                   </div>
 
                   <!-- EXCLUIR -->
@@ -762,7 +768,7 @@ function App() {
                       try {
                         await supa("iniciativas?id=eq."+detail.id, {method:"DELETE"});
                         setIniciativas(p=>p.filter(i=>i.id!==detail.id));
-                        setDetail(null);
+                        setDetailId(null);
                       } catch(e) { alert("Erro ao excluir: "+e.message); }
                     }}
                       style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;background:#FEE8ED;color:#F73A60;border:1px solid #FECDD3;transition:all .15s">
