@@ -309,6 +309,10 @@ function App() {
   const [detailTab,   setDetailTab]   = useState("iniciativa");
   const [cModal,      setCModal]      = useState(false);
   const [newC,        setNewC]        = useState({nome:"",descricao:"",cor:CLR_CLUST[0]});
+  const [niModal,     setNiModal]     = useState(false);
+  const [niSaving,    setNiSaving]    = useState(false);
+  const EMPTY_NI = {nome_colaborador:"",area:AREAS[0],problema:"",impacto:"",tempo_manual:"",apoio_ai_lead:"Talvez",tipo:"",classificacao:"Projeto",okr:"OKR 2 Margem",complexidade:3,prioridade:"Alta",status:"Backlog",notas:""};
+  const [newNi,       setNewNi]       = useState(EMPTY_NI);
   const [saving,      setSaving]      = useState(null);
   const [analisando,  setAnalisando]  = useState(null);
   const [copiado,     setCopiado]     = useState(false);
@@ -400,6 +404,20 @@ function App() {
       setClusters(p=>p.filter(c=>c.id!==cid));
       setIniciativas(p=>p.map(i=>i.cluster_id===cid?{...i,cluster_id:null}:i));
     } catch(e) { alert("Erro: "+e.message); }
+  };
+
+  const createIniciativa = async () => {
+    if (!newNi.problema.trim() || !newNi.nome_colaborador.trim()) return;
+    setNiSaving(true);
+    try {
+      const nextNum = iniciativas.length > 0 ? Math.max(...iniciativas.map(i=>i.num||0)) + 1 : 1;
+      const payload = { ...newNi, num: nextNum };
+      const [created] = await supa("iniciativas", {method:"POST", body:payload, prefer:"return=representation"});
+      setIniciativas(p=>[...p, created]);
+      setNiModal(false);
+      setNewNi(EMPTY_NI);
+    } catch(e) { alert("Erro ao criar iniciativa: "+e.message); }
+    finally { setNiSaving(false); }
   };
 
   const exportCSV = () => {
@@ -538,6 +556,10 @@ function App() {
           </p>
         </div>
         <div class="flex flex-wrap gap-2 items-center">
+          <button class="btn-nav btn-nav-default" onClick=${()=>{ setNewNi(EMPTY_NI); setNiModal(true); }}
+            style="background:#009FCF;color:#fff;border-color:#009FCF">
+            ${IconPlus(12)} Nova Iniciativa
+          </button>
           <button class=${"btn-nav "+(view==="lista"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("lista")}>
             ${IconList(12)} Lista
           </button>
@@ -823,6 +845,166 @@ function App() {
                       </button>
                     </div>`}
                 </div>`}
+            </div>
+          </div>
+        </div>` : null}
+
+      <!-- NOVA INICIATIVA MODAL -->
+      ${niModal ? html`
+        <div class="modal-overlay" onClick=${()=>setNiModal(false)}>
+          <div class="modal-box" style="max-width:600px" onClick=${e=>e.stopPropagation()}>
+
+            <div class="flex items-center justify-between px-6 py-5" style="border-bottom:1px solid #F1F5F9">
+              <div>
+                <h3 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:17px;color:#1C1C1C;margin:0 0 2px">Nova Iniciativa</h3>
+                <p style="color:#9193A0;font-size:12px;margin:0">Campos com * são obrigatórios</p>
+              </div>
+              <button onClick=${()=>setNiModal(false)} style="background:none;border:none;cursor:pointer;color:#C0C4CC">${IconX(18)}</button>
+            </div>
+
+            <div class="overflow-y-auto flex-1 px-6 py-5">
+              <div class="flex flex-col gap-4">
+
+                <!-- Nome e Área -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div>
+                    ${SL("Nome do colaborador *")}
+                    <input type="text" value=${newNi.nome_colaborador}
+                      onChange=${e=>setNewNi(p=>({...p,nome_colaborador:e.target.value}))}
+                      placeholder="Ex: Ana Carolina Lima"
+                      style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
+                  </div>
+                  <div>
+                    ${SL("Área *")}
+                    <select value=${newNi.area} onChange=${e=>setNewNi(p=>({...p,area:e.target.value}))}
+                      style="width:100%;padding:9px 26px 9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;cursor:pointer;box-sizing:border-box">
+                      ${AREAS.map(a=>html`<option key=${a} value=${a}>${a}</option>`)}
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Problema -->
+                <div>
+                  ${SL("Problema / Oportunidade *")}
+                  <textarea value=${newNi.problema}
+                    onChange=${e=>setNewNi(p=>({...p,problema:e.target.value}))}
+                    placeholder="Descreva o problema atual ou a oportunidade identificada..."
+                    rows="3"
+                    style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
+                </div>
+
+                <!-- Impacto e Tempo manual -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div>
+                    ${SL("Impacto esperado")}
+                    <input type="text" value=${newNi.impacto}
+                      onChange=${e=>setNewNi(p=>({...p,impacto:e.target.value}))}
+                      placeholder="Ex: Reduzir custo ou aumentar margem"
+                      style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
+                  </div>
+                  <div>
+                    ${SL("Tempo manual atual")}
+                    <input type="text" value=${newNi.tempo_manual}
+                      onChange=${e=>setNewNi(p=>({...p,tempo_manual:e.target.value}))}
+                      placeholder="Ex: 3h/semana"
+                      style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
+                  </div>
+                </div>
+
+                <!-- Tipo e OKR -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div>
+                    ${SL("Tipo de iniciativa")}
+                    <input type="text" value=${newNi.tipo}
+                      onChange=${e=>setNewNi(p=>({...p,tipo:e.target.value}))}
+                      placeholder="Ex: Automação, Agente de IA..."
+                      style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
+                  </div>
+                  <div>
+                    ${SL("OKR relacionado")}
+                    <select value=${newNi.okr} onChange=${e=>setNewNi(p=>({...p,okr:e.target.value}))}
+                      style="width:100%;padding:9px 26px 9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;cursor:pointer;box-sizing:border-box">
+                      ${OKRS.map(o=>html`<option key=${o} value=${o}>${o}</option>`)}
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Classificação -->
+                <div>
+                  ${SL("Classificação")}
+                  <div class="flex gap-2">
+                    ${CLASSIFS.map(c=>{ const s=CLF[c]; const act=newNi.classificacao===c; return html`
+                      <button key=${c} onClick=${()=>setNewNi(p=>({...p,classificacao:c}))}
+                        style=${"padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
+                          +(act?"background:"+s.bg+";color:"+s.color+";border-color:"+s.border:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                        ${c}
+                      </button>`; })}
+                  </div>
+                </div>
+
+                <!-- Prioridade + Complexidade -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div>
+                    ${SL("Prioridade")}
+                    <div class="flex gap-2">
+                      ${[["Alta","#F73A60","#FEE8ED","#FECDD3"],["Media","#D97706","#FFFBEB","#FDE68A"],["Baixa","#475569","#F1F5F9","#CBD5E1"]].map(([pr,clr,bg,bd])=>html`
+                        <button key=${pr} onClick=${()=>setNewNi(p=>({...p,prioridade:pr}))}
+                          style=${"padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
+                            +(newNi.prioridade===pr?"background:"+bg+";color:"+clr+";border-color:"+bd:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                          ${pr}
+                        </button>`)})
+                    </div>
+                  </div>
+                  <div>
+                    ${SL("Complexidade (1-5)")}
+                    <div class="flex gap-1.5 items-center" style="padding-top:4px">
+                      ${[1,2,3,4,5].map(n=>html`
+                        <button key=${n} onClick=${()=>setNewNi(p=>({...p,complexidade:n}))}
+                          style=${"width:28px;height:28px;border-radius:50%;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"
+                            +(newNi.complexidade===n?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#9193A0")}>
+                          ${n}
+                        </button>`)}
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Apoio AI Lead -->
+                <div>
+                  ${SL("Precisa de apoio do AI Lead?")}
+                  <div class="flex gap-2">
+                    ${["Sim","Nao","Talvez"].map(v=>html`
+                      <button key=${v} onClick=${()=>setNewNi(p=>({...p,apoio_ai_lead:v}))}
+                        style=${"padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
+                          +(newNi.apoio_ai_lead===v?"background:#E5F6FB;color:#009FCF;border-color:#009FCF":"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                        ${v}
+                      </button>`)}
+                  </div>
+                </div>
+
+                <!-- Notas -->
+                <div>
+                  ${SL("Notas internas (opcional)")}
+                  <textarea value=${newNi.notas}
+                    onChange=${e=>setNewNi(p=>({...p,notas:e.target.value}))}
+                    placeholder="Observações, contexto adicional, contatos..."
+                    rows="2"
+                    style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
+                </div>
+
+              </div>
+            </div>
+
+            <div class="px-6 py-4 flex justify-end gap-2" style="border-top:1px solid #F1F5F9">
+              <button onClick=${()=>setNiModal(false)}
+                style="padding:9px 18px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid #E8ECF1;background:#fff;color:#4A4A4A;font-family:'Plus Jakarta Sans',sans-serif">
+                Cancelar
+              </button>
+              <button onClick=${createIniciativa}
+                disabled=${niSaving || !newNi.problema.trim() || !newNi.nome_colaborador.trim()}
+                style=${"padding:9px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;border:none;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"
+                  +(niSaving||!newNi.problema.trim()||!newNi.nome_colaborador.trim()?"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed":"background:#009FCF;color:#fff")}>
+                ${niSaving ? "Salvando…" : "Salvar Iniciativa"}
+              </button>
             </div>
           </div>
         </div>` : null}
