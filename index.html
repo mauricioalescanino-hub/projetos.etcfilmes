@@ -309,6 +309,7 @@ function App() {
   const [detailTab,   setDetailTab]   = useState("iniciativa");
   const [cModal,      setCModal]      = useState(false);
   const [newC,        setNewC]        = useState({nome:"",descricao:"",cor:CLR_CLUST[0],prioridade:"Media"});
+  const [editingClusterPri, setEditingClusterPri] = useState(null);
   const [niModal,     setNiModal]     = useState(false);
   const [niSaving,    setNiSaving]    = useState(false);
   const EMPTY_NI = {nome_colaborador:"",area:AREAS[0],problema:"",impacto:"",tempo_manual:"",apoio_ai_lead:"Talvez",tipo:"",classificacao:"Projeto",okr:"OKR 2 Margem",complexidade:3,prioridade:"Alta",status:"Backlog",notas:""};
@@ -386,6 +387,13 @@ function App() {
       document.execCommand("copy"); document.body.removeChild(el);
       setCopiado(true); setTimeout(()=>setCopiado(false),2500);
     } catch { alert("Selecione o texto manualmente e use Ctrl+C."); }
+  };
+
+  const patchCluster = async (cid, fields) => {
+    try {
+      await supa("clusters?id=eq."+cid, {method:"PATCH", body:fields});
+      setClusters(p=>p.map(c=>c.id===cid?{...c,...fields}:c));
+    } catch(e) { alert("Erro ao atualizar cluster: "+e.message); }
   };
 
   const createCluster = async () => {
@@ -1083,19 +1091,41 @@ function App() {
               ${clusters.length>0 ? html`
                 <div>
                   <label class="section-label" style="display:block">Clusters existentes</label>
-                  <div style="display:flex;flex-direction:column;gap:6px;max-height:112px;overflow-y:auto">
-                    ${clusters.map(c=>html`
-                      <div key=${c.id} class="flex items-center gap-2" style="font-size:12px;color:#4A4A4A">
-                        <span class="rounded-full" style=${"width:8px;height:8px;background:"+c.cor+";display:inline-block;flex-shrink:0"}></span>
-                        <span style="flex:1">${c.nome}</span>
-                        <span style="color:#C0C4CC">${iniciativas.filter(i=>i.cluster_id===c.id).length} ini.</span>
-                        <button onClick=${()=>deleteCluster(c.id)}
-                          style="background:none;border:none;cursor:pointer;color:#E8ECF1;padding:2px"
-                          onMouseEnter=${e=>e.currentTarget.style.color="#F73A60"}
-                          onMouseLeave=${e=>e.currentTarget.style.color="#E8ECF1"}>
-                          ${IconX(12)}
-                        </button>
-                      </div>`)}
+                  <div style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto">
+                    ${clusters.map(c=>{
+                      const pri = c.prioridade || "Media";
+                      const priStyle = pri==="Alta"?"background:#FEE8ED;color:#F73A60;border-color:#FECDD3"
+                        :pri==="Baixa"?"background:#F1F5F9;color:#475569;border-color:#CBD5E1"
+                        :"background:#FFFBEB;color:#D97706;border-color:#FDE68A";
+                      return html`
+                        <div key=${c.id} style="display:flex;flex-direction:column;gap:4px">
+                          <div class="flex items-center gap-2" style="font-size:12px;color:#4A4A4A">
+                            <span class="rounded-full" style=${"width:8px;height:8px;background:"+c.cor+";display:inline-block;flex-shrink:0"}></span>
+                            <span style="flex:1">${c.nome}</span>
+                            <button onClick=${()=>setEditingClusterPri(editingClusterPri===c.id?null:c.id)}
+                              title="Editar prioridade"
+                              style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;cursor:pointer;transition:all .15s;"+priStyle}>
+                              ${pri}
+                            </button>
+                            <span style="color:#C0C4CC;font-size:11px">${iniciativas.filter(i=>i.cluster_id===c.id).length} ini.</span>
+                            <button onClick=${()=>deleteCluster(c.id)}
+                              style="background:none;border:none;cursor:pointer;color:#E8ECF1;padding:2px"
+                              onMouseEnter=${e=>e.currentTarget.style.color="#F73A60"}
+                              onMouseLeave=${e=>e.currentTarget.style.color="#E8ECF1"}>
+                              ${IconX(12)}
+                            </button>
+                          </div>
+                          ${editingClusterPri===c.id ? html`
+                            <div class="flex gap-1.5 pl-4">
+                              ${[["Alta","#F73A60","#FEE8ED","#FECDD3"],["Media","#D97706","#FFFBEB","#FDE68A"],["Baixa","#475569","#F1F5F9","#CBD5E1"]].map(([pr,clr,bg,bd])=>html`
+                                <button key=${pr}
+                                  onClick=${async ()=>{ await patchCluster(c.id,{prioridade:pr}); setEditingClusterPri(null); }}
+                                  style=${"padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
+                                    +(pri===pr?"background:"+bg+";color:"+clr+";border-color:"+bd:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                                  ${pr}
+                                </button>`)}
+                            </div>` : null}
+                        </div>`; })}
                   </div>
                 </div>` : null}
               <button onClick=${createCluster} disabled=${!newC.nome.trim()}
