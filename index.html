@@ -308,7 +308,7 @@ function App() {
   const [detailId,    setDetailId]    = useState(null);
   const [detailTab,   setDetailTab]   = useState("iniciativa");
   const [cModal,      setCModal]      = useState(false);
-  const [newC,        setNewC]        = useState({nome:"",descricao:"",cor:CLR_CLUST[0]});
+  const [newC,        setNewC]        = useState({nome:"",descricao:"",cor:CLR_CLUST[0],prioridade:"Media"});
   const [niModal,     setNiModal]     = useState(false);
   const [niSaving,    setNiSaving]    = useState(false);
   const EMPTY_NI = {nome_colaborador:"",area:AREAS[0],problema:"",impacto:"",tempo_manual:"",apoio_ai_lead:"Talvez",tipo:"",classificacao:"Projeto",okr:"OKR 2 Margem",complexidade:3,prioridade:"Alta",status:"Backlog",notas:""};
@@ -392,7 +392,7 @@ function App() {
     if (!newC.nome.trim()) return;
     try {
       const [c] = await supa("clusters",{method:"POST",body:newC,prefer:"return=representation"});
-      setClusters(p=>[...p,c]); setNewC({nome:"",descricao:"",cor:CLR_CLUST[0]});
+      setClusters(p=>[...p,c]); setNewC({nome:"",descricao:"",cor:CLR_CLUST[0],prioridade:"Media"});
     } catch(e) { alert("Erro: "+e.message); }
   };
 
@@ -646,6 +646,13 @@ function App() {
                     <span class="rounded-full" style=${"width:12px;height:12px;background:"+cl.cor+";display:inline-block;flex-shrink:0"}></span>
                     <h2 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:14px;color:#1C1C1C;margin:0">${cl.nome}</h2>
                     ${cl.descricao ? html`<span style="color:#9193A0;font-size:12px">${cl.descricao}</span>` : null}
+                    ${cl.prioridade ? html`
+                      <span style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;"
+                        +(cl.prioridade==="Alta"?"background:#FEE8ED;color:#F73A60;border-color:#FECDD3"
+                        :cl.prioridade==="Baixa"?"background:#F1F5F9;color:#475569;border-color:#CBD5E1"
+                        :"background:#FFFBEB;color:#D97706;border-color:#FDE68A")}>
+                        ${cl.prioridade}
+                      </span>` : null}
                     <span style="color:#C0C4CC;font-size:11px">${items.length} ini.</span>
                     <button onClick=${()=>deleteCluster(cl.id)}
                       style="margin-left:auto;background:none;border:none;cursor:pointer;color:#C0C4CC;padding:4px"
@@ -1060,6 +1067,17 @@ function App() {
                     <button key=${c} onClick=${()=>setNewC(p=>({...p,cor:c}))}
                       style=${"width:28px;height:28px;border-radius:50%;background:"+c+";cursor:pointer;transition:all .15s;border:"+(newC.cor===c?"3px solid #1C1C1C":"3px solid transparent")+";transform:"+(newC.cor===c?"scale(1.15)":"scale(1)")}>
                     </button>`)}
+                </div>
+              </div>
+              <div>
+                <label class="section-label" style="display:block">Prioridade do cluster</label>
+                <div class="flex gap-2">
+                  ${[["Alta","#F73A60","#FEE8ED","#FECDD3"],["Media","#D97706","#FFFBEB","#FDE68A"],["Baixa","#475569","#F1F5F9","#CBD5E1"]].map(([pr,clr,bg,bd])=>html`
+                    <button key=${pr} onClick=${()=>setNewC(p=>({...p,prioridade:pr}))}
+                      style=${"padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
+                        +(newC.prioridade===pr?"background:"+bg+";color:"+clr+";border-color:"+bd:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                      ${pr}
+                    </button>`)})
                 </div>
               </div>
               ${clusters.length>0 ? html`
