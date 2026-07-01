@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Painel de Iniciativas de IA — ETC Filmes</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  html, body { background:#020617; margin:0; padding:0; }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:#1e293b; border-radius:4px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { animation: spin 1s linear infinite; }
+  .line-clamp-1 { display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
+  .line-clamp-3 { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+import { h, render } from "https://esm.sh/preact@10.19.3";
+import { useState, useEffect, useMemo } from "https://esm.sh/preact@10.19.3/hooks";
+import htm from "https://esm.sh/htm@3.1.1";
+const html = htm.bind(h);
+
+/* ================= CONFIG =================
+   A anon key do Supabase é pública por design (o Supabase usa RLS
+   para controlar o acesso), então não há problema em deixá-la aqui.
+   A chave da Anthropic NUNCA fica neste arquivo — ela mora só no
+   servidor (api/analyze.js), configurada como variável de ambiente. */
+const SURL = "https://dckvqweuinsgadhkkjqx.supabase.co";
+const SKEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRja3Zxd2V1aW5zZ2FkaGtranF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwMjExMzAsImV4cCI6MjA5MjU5NzEzMH0.ad4dQWm33fZMUKu4jJkcbBcLvr2FUcXW-ztril7rvd8";
+const ANALYZE_ENDPOINT = "/api/analyze";
+
+/* ================= CONSTANTS ================= */
+const STATUS_OPTS = ["Backlog","Em Analise","Aprovada","Em Desenvolvimento","Concluida"];
+const AREAS       = ["Atendimento","Producao","Comercial","Financeiro","RH","CL"];
+const OKRS        = ["OKR 1 Receita","OKR 2 Margem","Transversal"];
+const CLASSIFS    = ["Ideia","Tarefa","Projeto"];
+const PRIORS      = ["Alta","Media","Baixa"];
+const CLR_CLUST   = ["#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6","#ec4899","#06b6d4","#84cc16","#f97316","#14b8a6"];
+
+const CLF_CLR = { Ideia:"bg-violet-600", Tarefa:"bg-sky-600", Projeto:"bg-orange-500" };
+const OKR_CLR = { "OKR 1 Receita":"bg-emerald-700 text-emerald-200", "OKR 2 Margem":"bg-purple-800 text-purple-200", Transversal:"bg-slate-700 text-slate-300" };
+const STA_CLR = { Backlog:"bg-slate-800 text-slate-400", "Em Analise":"bg-amber-950 text-amber-300", Aprovada:"bg-sky-950 text-sky-300", "Em Desenvolvimento":"bg-violet-950 text-violet-300", Concluida:"bg-emerald-950 text-emerald-300" };
+
+const viabBadge = (v) => { if (!v) return "bg-slate-600"; const l=v.toLowerCase(); if(l.includes("alta")) return "bg-emerald-500"; if(l.includes("dia")||l.includes("edia")) return "bg-amber-500"; return "bg-red-500"; };
+const recColor  = (r) => { if (!r) return "#475569"; const l=r.toLowerCase(); if(l.includes("aprovar")&&!l.includes("ajuste")&&!l.includes("nao")) return "#059669"; if(l.includes("ajuste")) return "#d97706"; return "#dc2626"; };
+
+/* ================= PARSER DA RESPOSTA DA IA ================= */
+const parseAnalise = (txt) => {
+  const s = {};
+  const sec = (from, to) => {
+    const re = new RegExp("## " + from + "\\.(.*?)(?=\\n## " + to + "\\.|$)", "s");
+    const m = txt.match(re);
+    if (!m) return "";
+    return m[0].replace(new RegExp("^## " + from + "\\..*\\n"), "").trim();
+  };
+  const r1 = sec("1","2");
+  s.ideiaFrase   = (r1.match(/\*\*Ideia em 1 frase:\*\* (.+)/) || [])[1] || "";
+  s.viabilidade  = (r1.match(/\*\*Viabilidade:\*\* ([^-\n]+)/) || [])[1]?.trim() || "";
+  s.complexidade = (r1.match(/\*\*Complexidade:\*\* (.+)/) || [])[1] || "";
+  s.tempo        = (r1.match(/\*\*Tempo estimado:\*\* (.+)/) || [])[1] || "";
+  s.custo        = (r1.match(/\*\*Custo estimado:\*\* (.+)/) || [])[1] || "";
+  s.roi          = (r1.match(/\*\*ROI esperado:\*\* (.+)/) || [])[1] || "";
+  const r2 = sec("2","3");
+  s.okrImpactado  = (r2.match(/\*\*OKR impactado:\*\* (.+)/) || [])[1] || "";
+  s.okrConexao    = (r2.match(/\*\*Conex[aã]o:\*\* (.+)/) || [])[1] || "";
+  s.okrImpacto    = (r2.match(/\*\*Impacto estimado:\*\* (.+)/) || [])[1] || "";
+  s.okrPrioridade = (r2.match(/\*\*Prioridade sugerida:\*\* (.+)/) || [])[1] || "";
+  s.problema      = sec("3","4");
+  s.solucao       = sec("4","5");
+  s.stack         = sec("5","6");
+  s.roadmap       = sec("6","7");
+  s.estimativas   = sec("7","8");
+  s.riscos        = sec("8","9");
+  const m9 = txt.match(/## 9\.([\s\S]*?)(?=### RECOMENDA|$)/);
+  s.proximosPassos  = m9 ? m9[1].trim() : "";
+  s.recomendacao    = (txt.match(/### RECOMENDA[CÇ][AÃ]O FINAL\s*\*\*(.+?)\*\*/) || [])[1] || "";
+  s.recomendacaoDesc= (txt.match(/### RECOMENDA[CÇ][AÃ]O FINAL\s*\*\*.+?\*\* - (.+)/) || [])[1] || "";
+  const fm = txt.match(/### RESUMO PARA SUBMISS[AÃ]O AO FORMS\n([\s\S]+)$/);
+  s.resumoForms = fm ? fm[1].trim() : ((txt.match(/(IDEIA:[\s\S]+RECOMENDA[CÇ][AÃ]O DA SKILL:.+)/) || [])[1] || "");
+  return s;
+};
+
+/* ================= SEED DATA ================= */
+const SEED = [
+  { num:1,  nome_colaborador:"Jessica Francisca dos Santos", area:"Atendimento", problema:"Localizar informacoes dos clientes exige navegar por multiplas telas do sistema: campo de pesquisa, Cadastros Bases, Painel Negocios e Gestao de Materiais. A analise completa leva em media 15 minutos por cliente.", impacto:"Melhorar processo interno", tempo_manual:"15 min/cliente", apoio_ai_lead:"Talvez", tipo:"Ferramenta Interna", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:3, prioridade:"Alta",  status:"Backlog", notas:"Assistente de consulta unificada de clientes. Integracao com sistema interno necessaria." },
+  { num:2,  nome_colaborador:"Fernanda Rico Abade Lima",    area:"Producao",     problema:"Automacao das Refs: conversao dos videos recebidos dos clientes para .mp4 Full HD <800MB com timecode queimado. O processo varia de 30 minutos a 4 horas por exportacao.", impacto:"Melhorar processo interno", tempo_manual:"30min a 4h/exportacao", apoio_ai_lead:"Sim", tipo:"Automacao", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:4, prioridade:"Alta",  status:"Backlog", notas:"Automacao de transcodificacao com ffmpeg + timecode." },
+  { num:3,  nome_colaborador:"Camila Fuente",               area:"Producao",     problema:"Geracao de locucoes utilizando sintese de voz por IA para reducao de custos em projetos de audiodescricao e conteudo narrado. Processo atual consome 10h por semana.", impacto:"Reduzir custo ou aumentar margem (OKR 2)", tempo_manual:"10h/semana", apoio_ai_lead:"Sim", tipo:"Geracao de Conteudo", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:4, prioridade:"Alta",  status:"Backlog", notas:"Novo servico potencial alem de reducao de custo interno." },
+  { num:4,  nome_colaborador:"Nathalia Niebuhr",            area:"Producao",     problema:"Analise e lancamento de jobs depende de multiplas fontes descentralizadas (e-mails, planilhas, sistema). Processo manual consome 81min/job, media de 56 jobs/mes = 75,5h/mes de trabalho repetitivo.", impacto:"Reduzir custo ou aumentar margem (OKR 2)", tempo_manual:"75,5h/mes (~2 semanas)", apoio_ai_lead:"Sim", tipo:"Integracao", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:5, prioridade:"Alta",  status:"Backlog", notas:"Maior ROI potencial da lista. Centralizacao + automacao do pipeline completo de jobs." },
+  { num:5,  nome_colaborador:"Ana Carolina Dall Piaggi",    area:"CL",           problema:"Confirmacoes de entrega exigem baixa manual em controle paralelo E no sistema simultaneamente, gerando retrabalho. Minimo 2h/semana dependendo do volume de HDs enviados.", impacto:"Melhorar processo interno", tempo_manual:"Min. 2h/semana", apoio_ai_lead:"Nao", tipo:"Automacao", classificacao:"Tarefa", okr:"OKR 2 Margem", complexidade:2, prioridade:"Media", status:"Backlog", notas:"Escopo delimitado. Executavel com Embaixador via Power Automate." },
+  { num:6,  nome_colaborador:"Gustavo",                     area:"Producao",     problema:"Validacao de depositos para a Cinemateca Brasileira e 100% manual: estrutura de pastas, nomenclatura, FPS, timecodes, bitrate, drift de audio, conformidade de acessibilidade. Uma rejeicao pode custar dias de retrabalho e atrasar prazos contratuais.", impacto:"Aumentar receita (OKR 1)", tempo_manual:"8h+ por deposito", apoio_ai_lead:"Nao", tipo:"Automacao", classificacao:"Projeto", okr:"OKR 1 Receita", complexidade:4, prioridade:"Alta",  status:"Backlog", notas:"Eliminacao de rejeicoes formais. Impacto direto em receita e reputacao." },
+  { num:7,  nome_colaborador:"Leonardo Noronha de Carvalho",area:"Producao",     problema:"API para automatizar edicao de videos com interpretacao em LIBRAS no Adobe Premiere: corte, posicionamento e sincronizacao da interprete na timeline, hoje feito manualmente.", impacto:"Melhorar processo interno", tempo_manual:"Variavel por video", apoio_ai_lead:"Nao", tipo:"Integracao", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:5, prioridade:"Alta",  status:"Backlog", notas:"Integracao via API com Adobe Premiere. Core business de acessibilidade." },
+  { num:8,  nome_colaborador:"Barbara Goncalves Affonso",   area:"RH",           problema:"Controle de beneficios de Mobilidade e Presenca e preenchido manualmente todo dia. Proposta: integrar com sistema de reconhecimento facial da porta para registro automatico.", impacto:"Reduzir custo ou aumentar margem (OKR 2)", tempo_manual:"30min/dia", apoio_ai_lead:"Talvez", tipo:"Integracao", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:3, prioridade:"Media", status:"Backlog", notas:"Embaixador ainda nao consultado." },
+  { num:9,  nome_colaborador:"Natalia Blandy",              area:"Producao",     problema:"Relatorio mensal de producao: ~8h para coletar dados de diferentes fontes do sistema, alimentar planilhas, gerar graficos e montar apresentacao. Totalmente manual e repetitivo.", impacto:"Melhorar processo interno", tempo_manual:"8h/mes", apoio_ai_lead:"Talvez", tipo:"Analise de Dados", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:3, prioridade:"Media", status:"Backlog", notas:"Power Automate + Claude para narrativa automatica." },
+  { num:10, nome_colaborador:"Natalia Blandy",              area:"Atendimento",  problema:"Agente de Atendimento: assistente de IA para duvidas tecnicas do atendimento e orientacao sobre comunicacao com clientes. Ideia em estagio inicial, registrada para nao perder.", impacto:"Melhorar processo interno", tempo_manual:"Questoes diarias nao mensuradas", apoio_ai_lead:"Sim", tipo:"Agente de IA", classificacao:"Ideia", okr:"Transversal", complexidade:4, prioridade:"Alta",  status:"Backlog", notas:"Precisa de discovery. Conversa iniciada com Cassio." },
+  { num:11, nome_colaborador:"Natalia Blandy",              area:"Producao",     problema:"Download automatico de links: atendimento envia link para email download@etcfilmes, agente entra no site e baixa para o transfer automaticamente. Transfer faz varredura com IA Sume e arrasta para Zboox sem interacao humana.", impacto:"Melhorar processo interno", tempo_manual:"~2h/dia", apoio_ai_lead:"Sim", tipo:"Agente de IA", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:5, prioridade:"Alta",  status:"Backlog", notas:"Pipeline end-to-end de ingestao. Integra com IA Sume existente." },
+  { num:12, nome_colaborador:"Natalia Blandy",              area:"Comercial",    problema:"Analise e acompanhamento dos jobs em Standby: identificar oportunidades paradas, entender motivo, retomar contato. ~3h/mes em analises e reunioes.", impacto:"Aumentar receita (OKR 1)", tempo_manual:"~3h/mes", apoio_ai_lead:"Talvez", tipo:"Analise de Dados", classificacao:"Projeto", okr:"OKR 1 Receita", complexidade:3, prioridade:"Alta",  status:"Backlog", notas:"Reativacao de pipeline comercial parado." },
+  { num:13, nome_colaborador:"Natalia Blandy",              area:"Producao",     problema:"A IA SUME processa fila em ordem de chegada sem distincao de urgencia. Material com prazo curto ou cliente estrategico fica travado atras de outros arquivos sem como intervir.", impacto:"Melhorar processo interno", tempo_manual:"Risco operacional — nao mensuravel", apoio_ai_lead:"Sim", tipo:"Integracao", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:4, prioridade:"Alta",  status:"Backlog", notas:"Sistema de priorizacao da fila da IA Sume." },
+  { num:14, nome_colaborador:"Celia Elias de Medeiros",    area:"Producao",     problema:"Formatacao manual das legendas produzidas por transcricao automatica. A automacao pode reduzir em torno de 25% do tempo total do processo de legendagem.", impacto:"Melhorar processo interno", tempo_manual:"25% do tempo de legendagem", apoio_ai_lead:"Talvez", tipo:"Automacao", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:2, prioridade:"Media", status:"Backlog", notas:"Script Python ou Claude API. Escopo especifico." },
+  { num:15, nome_colaborador:"Olivia Sobral Focking",      area:"Producao",     problema:"Revisao de videos de Libras: revisor assiste ao video inteiro buscando corte do interprete no quadro (maos/cotovelos saindo pelos limites da janela). Nenhuma ferramenta automatizada existe. Consome 50% da duracao do video.", impacto:"Melhorar processo interno", tempo_manual:"50% da duracao do video", apoio_ai_lead:"Talvez", tipo:"Analise de Dados", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:5, prioridade:"Alta",  status:"Backlog", notas:"Computer vision para deteccao de corte de interprete." },
+  { num:16, nome_colaborador:"Leticia Lailla Nozzolillo",  area:"RH",           problema:"Com o fim das parcerias com Learning e Qulture.Rocks, o conhecimento organizacional esta disperso entre pastas, videos e SharePoint sem trilhas ou rastreabilidade. 5-10h por colaborador novo em onboarding.", impacto:"Melhorar processo interno", tempo_manual:"5-10h por colaborador novo", apoio_ai_lead:"Nao", tipo:"Ferramenta Interna", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:5, prioridade:"Media", status:"Backlog", notas:"Plataforma web completa de trilhas de aprendizagem." },
+  { num:17, nome_colaborador:"Daynez Alves Ribeiro",       area:"Financeiro",   problema:"DRE da ETC e artesanal: dados exportados de sistemas distintos, consolidados manualmente por terceiros com entregas periodicas. Defasagem estrutural entre realidade financeira e o que a lideranca enxerga.", impacto:"Visibilidade estrategica", tempo_manual:"Processo terceirizado — defasagem estrutural", apoio_ai_lead:"Nao", tipo:"Analise de Dados", classificacao:"Projeto", okr:"Transversal", complexidade:5, prioridade:"Alta",  status:"Backlog", notas:"DRE em tempo real. Impacto estrategico para toda a lideranca." },
+  { num:18, nome_colaborador:"Daynez Alves Ribeiro",       area:"Financeiro",   problema:"Fechamento de relatorios (HD+Frete, Link, KDM): exportacao manual, formatacao um a um, calculo de valores, montagem de totalizadores por tipo e email de cobranca manual. 1h por fechamento.", impacto:"Melhorar processo interno", tempo_manual:"1h/fechamento", apoio_ai_lead:"Nao", tipo:"Automacao", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:3, prioridade:"Alta",  status:"Backlog", notas:"Ecossistema financeiro com P19, P20 e P21." },
+  { num:19, nome_colaborador:"Daynez Alves Ribeiro",       area:"Financeiro",   problema:"Controle de transportadoras (Bem e Logcine): consolidacao manual de planilhas semanais, conferencia de valores, controle de status de notas fiscais. 3h por semana.", impacto:"Melhorar processo interno", tempo_manual:"3h/semana", apoio_ai_lead:"Nao", tipo:"Automacao", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:3, prioridade:"Alta",  status:"Backlog", notas:"Integracao com planilhas das transportadoras." },
+  { num:20, nome_colaborador:"Daynez Alves Ribeiro",       area:"Financeiro",   problema:"Controle de expectativa de faturamento e recebimento: preenchimento manual semanal, comparacao com semana anterior. 1,5h no inicio do mes + 1h/dia durante a semana.", impacto:"Melhorar processo interno", tempo_manual:"5h/semana", apoio_ai_lead:"Nao", tipo:"Automacao", classificacao:"Projeto", okr:"OKR 2 Margem", complexidade:3, prioridade:"Alta",  status:"Backlog", notas:"Dashboard de expectativa financeira semanal." },
+  { num:21, nome_colaborador:"Daynez Alves Ribeiro",       area:"Financeiro",   problema:"Acompanhamento financeiro de novas vendas: controle via planilha do realizado vs. meta comercial, atualizado semanalmente para apresentacao em reuniao. 3h/semana.", impacto:"Melhorar processo interno", tempo_manual:"3h/semana", apoio_ai_lead:"Nao", tipo:"Analise de Dados", classificacao:"Projeto", okr:"Transversal", complexidade:3, prioridade:"Alta",  status:"Backlog", notas:"Dashboard performance comercial vs. meta." },
+];
+
+/* ================= SUPABASE HELPER ================= */
+const supa = async (path, opts={}) => {
+  const { method="GET", body, prefer } = opts;
+  const headers = { "apikey":SKEY, "Authorization":"Bearer "+SKEY, "Content-Type":"application/json" };
+  if (prefer) headers["Prefer"] = prefer;
+  const res = await fetch(SURL+"/rest/v1/"+path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (!res.ok) { const t = await res.text().catch(()=>res.status.toString()); throw new Error(t.substring(0,200)); }
+  const t = await res.text();
+  return t ? JSON.parse(t) : null;
+};
+
+/* ================= ICONS (inline SVG, sem dependencia externa) ================= */
+const IconX       = (sz=14,cls="") => html`<svg width=${sz} height=${sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class=${cls}><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>`;
+const IconPlus    = (sz=14,cls="") => html`<svg width=${sz} height=${sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class=${cls}><path d="M12 5v14"/><path d="M5 12h14"/></svg>`;
+const IconLayers  = (sz=14,cls="") => html`<svg width=${sz} height=${sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class=${cls}><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`;
+const IconList    = (sz=14,cls="") => html`<svg width=${sz} height=${sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class=${cls}><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>`;
+const IconDownload= (sz=14,cls="") => html`<svg width=${sz} height=${sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class=${cls}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+const IconAlert   = (sz=14,cls="") => html`<svg width=${sz} height=${sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class=${cls}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+const IconZap     = (sz=14,cls="") => html`<svg width=${sz} height=${sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class=${cls}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
+const IconCopy    = (sz=14,cls="") => html`<svg width=${sz} height=${sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class=${cls}><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const IconCheck   = (sz=14,cls="") => html`<svg width=${sz} height=${sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class=${cls}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 10.99"/></svg>`;
+const IconRefresh = (sz=14,cls="") => html`<svg width=${sz} height=${sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class=${cls}><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>`;
+const IconLoader  = (sz=14,cls="") => html`<svg width=${sz} height=${sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="${cls} spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`;
+
+const Dot = (n) => html`<span class="text-xs">${[1,2,3,4,5].map(i=>html`<span key=${i} class=${i<=n?"text-amber-400":"text-slate-700"}>●</span>`)}</span>`;
+
+/* ================= APP ================= */
+function App() {
+  const [iniciativas, setIniciativas] = useState([]);
+  const [clusters,    setClusters]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState(null);
+  const [view,        setView]        = useState("lista");
+  const [filters,     setFilters]     = useState({ area:"", okr:"", classificacao:"", status:"", prioridade:"", cluster:"" });
+  const [detail,      setDetail]      = useState(null);
+  const [detailTab,   setDetailTab]   = useState("iniciativa");
+  const [cModal,      setCModal]      = useState(false);
+  const [newC,        setNewC]        = useState({ nome:"", descricao:"", cor:CLR_CLUST[0] });
+  const [saving,      setSaving]      = useState(null);
+  const [analisando,  setAnalisando]  = useState(null);
+  const [copiado,     setCopiado]     = useState(false);
+  const [expanded,    setExpanded]    = useState(null);
+  const [seeding,     setSeeding]     = useState(false);
+
+  useEffect(() => { init(); }, []);
+
+  const init = async () => {
+    setLoading(true); setError(null);
+    try {
+      const [ini, cls] = await Promise.all([
+        supa("iniciativas?select=*&order=num.asc"),
+        supa("clusters?select=*&order=created_at.asc"),
+      ]);
+      setClusters(cls || []);
+      if (!ini || ini.length === 0) {
+        setSeeding(true);
+        await supa("iniciativas", { method:"POST", body:SEED, prefer:"return=minimal" });
+        const seeded = await supa("iniciativas?select=*&order=num.asc");
+        setIniciativas(seeded || []);
+        setSeeding(false);
+      } else { setIniciativas(ini); }
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const patch = async (id, fields) => {
+    setSaving(id);
+    try {
+      await supa("iniciativas?id=eq."+id, { method:"PATCH", body:fields });
+      setIniciativas(p=>p.map(i=>i.id===id?{...i,...fields}:i));
+      if (detail?.id===id) setDetail(p=>({...p,...fields}));
+    } catch(e) { alert("Erro: "+e.message); }
+    finally { setSaving(null); }
+  };
+
+  const generateAnalysis = async (ini) => {
+    setAnalisando(ini.id);
+    setDetailTab("canvas");
+    try {
+      const r = await fetch(ANALYZE_ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          area: ini.area,
+          problema: ini.problema,
+          impacto: ini.impacto,
+          tempo_manual: ini.tempo_manual,
+          apoio_ai_lead: ini.apoio_ai_lead,
+          classificacao: ini.classificacao,
+          tipo: ini.tipo,
+        }),
+      });
+      const data = await r.json().catch(()=>({}));
+      if (!r.ok || data.error) throw new Error(data.error || ("Erro da API: "+r.status));
+      const texto = data.text;
+      if (!texto) throw new Error("Resposta vazia da API.");
+
+      const parsed = parseAnalise(texto);
+      const geradaEm = new Date().toISOString();
+      await supa("iniciativas?id=eq."+ini.id, { method:"PATCH", body:{ analise_canvas:parsed, analise_gerada_em:geradaEm } });
+      setIniciativas(p=>p.map(i=>i.id===ini.id?{...i,analise_canvas:parsed,analise_gerada_em:geradaEm}:i));
+      if (detail?.id===ini.id) setDetail(p=>({...p,analise_canvas:parsed,analise_gerada_em:geradaEm}));
+    } catch(e) { alert("Erro ao gerar analise:\n\n"+e.message); }
+    finally { setAnalisando(null); }
+  };
+
+  const copiarResumo = () => {
+    const txt = detail?.analise_canvas?.resumoForms;
+    if (!txt) return;
+    try {
+      const el = document.createElement("textarea");
+      el.value=txt; el.style.cssText="position:fixed;top:-9999px;left:-9999px";
+      document.body.appendChild(el); el.focus(); el.select();
+      document.execCommand("copy"); document.body.removeChild(el);
+      setCopiado(true); setTimeout(()=>setCopiado(false),2500);
+    } catch { alert("Selecione o texto manualmente e use Ctrl+C."); }
+  };
+
+  const createCluster = async () => {
+    if (!newC.nome.trim()) return;
+    try {
+      const [c] = await supa("clusters",{method:"POST",body:newC,prefer:"return=representation"});
+      setClusters(p=>[...p,c]);
+      setNewC({nome:"",descricao:"",cor:CLR_CLUST[0]});
+    } catch(e) { alert("Erro: "+e.message); }
+  };
+
+  const deleteCluster = async (cid) => {
+    if (!confirm("Remover cluster? Iniciativas nao serao excluidas.")) return;
+    try {
+      await supa("iniciativas?cluster_id=eq."+cid,{method:"PATCH",body:{cluster_id:null}});
+      await supa("clusters?id=eq."+cid,{method:"DELETE"});
+      setClusters(p=>p.filter(c=>c.id!==cid));
+      setIniciativas(p=>p.map(i=>i.cluster_id===cid?{...i,cluster_id:null}:i));
+    } catch(e) { alert("Erro: "+e.message); }
+  };
+
+  const exportCSV = () => {
+    const hdr = ["#","Nome","Area","Classificacao","Tipo","OKR","Complexidade","Prioridade","Status","Tempo Manual","Apoio AI Lead","Cluster","Canvas Gerado","Problema"];
+    const rows = iniciativas.map(i=>{
+      const cl = clusters.find(c=>c.id===i.cluster_id);
+      return [i.num,i.nome_colaborador,i.area,i.classificacao,i.tipo,i.okr,i.complexidade,i.prioridade,i.status,i.tempo_manual,i.apoio_ai_lead,cl?.nome||"",i.analise_gerada_em?"Sim":"Nao",'"'+(i.problema||"").replace(/"/g,'""')+'"'].join(",");
+    });
+    const csv = [hdr.join(","),...rows].join("\n");
+    const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href=url; a.download="iniciativas-ia-etcfilmes.csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+  };
+
+  const getCluster = (id) => clusters.find(c=>c.id===id);
+
+  const filtered = useMemo(()=>iniciativas.filter(i=>{
+    if(filters.area          && i.area!==filters.area)                      return false;
+    if(filters.okr           && i.okr!==filters.okr)                        return false;
+    if(filters.classificacao && i.classificacao!==filters.classificacao)    return false;
+    if(filters.status        && i.status!==filters.status)                  return false;
+    if(filters.prioridade    && i.prioridade!==filters.prioridade)          return false;
+    if(filters.cluster==="__none__" && i.cluster_id)                        return false;
+    if(filters.cluster && filters.cluster!=="__none__" && i.cluster_id!==filters.cluster) return false;
+    return true;
+  }),[iniciativas,filters]);
+
+  const stats = useMemo(()=>({
+    projetos: iniciativas.filter(i=>i.classificacao==="Projeto").length,
+    tarefas:  iniciativas.filter(i=>i.classificacao==="Tarefa").length,
+    ideias:   iniciativas.filter(i=>i.classificacao==="Ideia").length,
+    okr1:     iniciativas.filter(i=>i.okr==="OKR 1 Receita").length,
+    okr2:     iniciativas.filter(i=>i.okr==="OKR 2 Margem").length,
+    comCanvas:iniciativas.filter(i=>i.analise_canvas).length,
+    alta:     iniciativas.filter(i=>i.prioridade==="Alta").length,
+  }),[iniciativas]);
+
+  const Card = (ini) => {
+    const cl = getCluster(ini.cluster_id);
+    return html`
+      <div onClick=${()=>{setDetail(ini);setDetailTab("iniciativa");setExpanded(null);}}
+        style=${cl?{borderLeftColor:cl.cor,borderLeftWidth:"3px"}:{}}
+        class="relative bg-slate-900 border border-slate-800 hover:border-slate-600 rounded-xl p-4 cursor-pointer transition-all hover:shadow-xl hover:-translate-y-0.5 flex flex-col gap-2.5">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-600 text-xs font-mono font-bold">#${String(ini.num).padStart(2,"0")}</span>
+            ${ini.analise_canvas ? html`<span title="Canvas gerado" class="text-emerald-500 text-xs">⚡</span>` : null}
+          </div>
+          <div class="flex flex-wrap gap-1 justify-end">
+            <span class="${CLF_CLR[ini.classificacao]} text-white text-xs font-bold px-2 py-0.5 rounded-full">${ini.classificacao}</span>
+            <span class="${OKR_CLR[ini.okr]} text-xs font-semibold px-2 py-0.5 rounded-full">${ini.okr==="OKR 1 Receita"?"OKR1":ini.okr==="OKR 2 Margem"?"OKR2":"Trans."}</span>
+          </div>
+        </div>
+        <p class="text-slate-200 text-xs leading-relaxed line-clamp-3">${ini.problema}</p>
+        <div class="flex items-center justify-between mt-auto pt-1 border-t border-slate-800">
+          <div class="flex items-center gap-1.5">
+            <span class="bg-slate-800 text-slate-400 text-xs px-1.5 py-0.5 rounded">${ini.area}</span>
+            ${Dot(ini.complexidade)}
+          </div>
+          <span class="${STA_CLR[ini.status]} text-xs px-1.5 py-0.5 rounded">${ini.status}</span>
+        </div>
+        ${cl ? html`<div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style=${{background:cl.cor}}></span><span class="text-slate-500 text-xs truncate">${cl.nome}</span></div>` : null}
+        <p class="text-slate-600 text-xs truncate">${(ini.nome_colaborador||"").split(" ").slice(0,2).join(" ")}</p>
+      </div>
+    `;
+  };
+
+  if (loading) return html`
+    <div class="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4 text-slate-400">
+      ${IconLoader(28)}
+      <p>${seeding?"Inserindo 21 iniciativas no Supabase...":"Conectando ao Supabase..."}</p>
+    </div>`;
+
+  if (error) return html`
+    <div class="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4 p-8">
+      ${IconAlert(28,"text-red-400")}
+      <p class="text-white font-semibold">Erro ao conectar ao Supabase</p>
+      <p class="text-slate-400 text-sm text-center max-w-md">${error}</p>
+      <button onClick=${init} class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm">Tentar novamente</button>
+    </div>`;
+
+  return html`
+    <div class="min-h-screen bg-slate-950 text-white flex flex-col">
+
+      <div class="border-b border-slate-800 px-5 py-3.5 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 class="text-white font-bold tracking-tight">Painel de Iniciativas de IA</h1>
+          <p class="text-slate-500 text-xs">ETC Filmes · ${iniciativas.length} iniciativas · ${clusters.length} clusters · ${stats.comCanvas} com Canvas ⚡</p>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button onClick=${()=>setView("lista")} class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${view==="lista"?"bg-blue-600 text-white":"bg-slate-800 text-slate-400 hover:text-white"}">
+            ${IconList(12)} Lista
+          </button>
+          <button onClick=${()=>setView("clusters")} class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${view==="clusters"?"bg-blue-600 text-white":"bg-slate-800 text-slate-400 hover:text-white"}">
+            ${IconLayers(12)} Clusters
+          </button>
+          <button onClick=${()=>setCModal(true)} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1">
+            ${IconPlus(12)} Cluster
+          </button>
+          <button onClick=${exportCSV} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1">
+            ${IconDownload(12)} CSV
+          </button>
+        </div>
+      </div>
+
+      <div class="border-b border-slate-800 px-5 py-2.5 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+        <span><span class="text-orange-400 font-bold">${stats.projetos}</span> <span class="text-slate-500">Projetos</span></span>
+        <span><span class="text-sky-400 font-bold">${stats.tarefas}</span> <span class="text-slate-500">Tarefas</span></span>
+        <span><span class="text-violet-400 font-bold">${stats.ideias}</span> <span class="text-slate-500">Ideias</span></span>
+        <span class="text-slate-700">|</span>
+        <span><span class="text-emerald-400 font-bold">${stats.okr1}</span> <span class="text-slate-500">OKR 1</span></span>
+        <span><span class="text-purple-400 font-bold">${stats.okr2}</span> <span class="text-slate-500">OKR 2</span></span>
+        <span class="text-slate-700">|</span>
+        <span><span class="text-red-400 font-bold">${stats.alta}</span> <span class="text-slate-500">Alta prioridade</span></span>
+        <span><span class="text-emerald-400 font-bold">${stats.comCanvas}</span> <span class="text-slate-500">⚡ Canvas gerado</span></span>
+        ${Object.values(filters).some(Boolean) ? html`<span class="text-amber-400 font-bold ml-auto">${filtered.length} visiveis</span>` : null}
+      </div>
+
+      <div class="border-b border-slate-800 px-5 py-2.5 flex flex-wrap gap-2 items-center">
+        <span class="text-slate-600 text-xs">Filtrar</span>
+        ${[
+          {k:"area",opts:AREAS,ph:"Area"},
+          {k:"classificacao",opts:CLASSIFS,ph:"Tipo"},
+          {k:"okr",opts:OKRS,ph:"OKR"},
+          {k:"prioridade",opts:PRIORS,ph:"Prioridade"},
+          {k:"status",opts:STATUS_OPTS,ph:"Status"},
+        ].map(({k,opts,ph})=>html`
+          <select key=${k} value=${filters[k]} onChange=${e=>setFilters(p=>({...p,[k]:e.target.value}))}
+            class="bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-500 cursor-pointer">
+            <option value="">${ph}</option>
+            ${opts.map(o=>html`<option key=${o} value=${o}>${o}</option>`)}
+          </select>
+        `)}
+        <select value=${filters.cluster} onChange=${e=>setFilters(p=>({...p,cluster:e.target.value}))}
+          class="bg-slate-800 border border-slate-700 text-slate-300 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-500 cursor-pointer">
+          <option value="">Cluster</option>
+          <option value="__none__">Sem cluster</option>
+          ${clusters.map(c=>html`<option key=${c.id} value=${c.id}>${c.nome}</option>`)}
+        </select>
+        ${Object.values(filters).some(Boolean) ? html`
+          <button onClick=${()=>setFilters({area:"",okr:"",classificacao:"",status:"",prioridade:"",cluster:""})}
+            class="flex items-center gap-1 text-xs text-slate-500 hover:text-white px-2 py-1.5 hover:bg-slate-800 rounded-lg transition-colors">
+            ${IconX(10)} Limpar
+          </button>` : null}
+      </div>
+
+      <div class="flex-1 px-5 py-5 overflow-auto">
+        ${view==="lista" ? html`
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            ${filtered.map(i=>Card(i))}
+            ${filtered.length===0 ? html`<div class="col-span-full text-center py-16 text-slate-500"><p class="text-lg mb-1">Nenhuma iniciativa encontrada</p><p class="text-sm">Ajuste os filtros.</p></div>` : null}
+          </div>
+        ` : html`
+          <div class="space-y-10">
+            ${clusters.map(cl=>{
+              const items=filtered.filter(i=>i.cluster_id===cl.id);
+              if(items.length===0) return null;
+              return html`
+                <div key=${cl.id}>
+                  <div class="flex items-center gap-3 mb-4">
+                    <span class="w-3.5 h-3.5 rounded-full" style=${{background:cl.cor}}></span>
+                    <h2 class="text-white font-bold text-sm">${cl.nome}</h2>
+                    ${cl.descricao ? html`<span class="text-slate-500 text-xs">${cl.descricao}</span>` : null}
+                    <span class="text-slate-600 text-xs">${items.length} ini.</span>
+                    <button onClick=${()=>deleteCluster(cl.id)} class="ml-auto text-slate-700 hover:text-red-400 transition-colors" title="Remover cluster">${IconX(13)}</button>
+                  </div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    ${items.map(i=>Card(i))}
+                  </div>
+                </div>
+              `;
+            })}
+            ${(()=>{
+              const ug=filtered.filter(i=>!i.cluster_id);
+              if(ug.length===0) return null;
+              return html`
+                <div>
+                  <div class="flex items-center gap-3 mb-4">
+                    <span class="w-3.5 h-3.5 rounded-full bg-slate-700"></span>
+                    <h2 class="text-slate-500 font-semibold text-sm">Sem cluster</h2>
+                    <span class="text-slate-600 text-xs">${ug.length} ini.</span>
+                  </div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    ${ug.map(i=>Card(i))}
+                  </div>
+                </div>
+              `;
+            })()}
+          </div>
+        `}
+      </div>
+
+      ${detail ? html`
+        <div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick=${()=>setDetail(null)}>
+          <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick=${e=>e.stopPropagation()}>
+
+            <div class="px-6 pt-5 pb-3 border-b border-slate-800">
+              <div class="flex items-start justify-between mb-3">
+                <div class="flex flex-wrap gap-1.5">
+                  <span class="${CLF_CLR[detail.classificacao]} text-white text-xs font-bold px-2 py-0.5 rounded-full">${detail.classificacao}</span>
+                  <span class="${OKR_CLR[detail.okr]} text-xs font-semibold px-2 py-0.5 rounded-full">${detail.okr}</span>
+                  <span class="bg-slate-800 text-slate-400 text-xs px-2 py-0.5 rounded">${detail.area}</span>
+                  <span class="bg-slate-800 text-slate-500 text-xs px-2 py-0.5 rounded">#${String(detail.num).padStart(2,"0")}</span>
+                </div>
+                <button onClick=${()=>setDetail(null)} class="text-slate-600 hover:text-white ml-3 flex-shrink-0">${IconX(18)}</button>
+              </div>
+              <p class="text-slate-400 text-xs mb-3">👤 ${detail.nome_colaborador}</p>
+              <div class="flex gap-1">
+                <button onClick=${()=>setDetailTab("iniciativa")} class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${detailTab==="iniciativa"?"bg-slate-700 text-white":"text-slate-500 hover:text-slate-300"}">
+                  Iniciativa
+                </button>
+                <button onClick=${()=>setDetailTab("canvas")} class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${detailTab==="canvas"?"bg-slate-700 text-white":"text-slate-500 hover:text-slate-300"}">
+                  ${IconZap(11)} Canvas IA
+                  ${detail.analise_canvas ? html`<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 ml-0.5"></span>` : null}
+                </button>
+              </div>
+            </div>
+
+            <div class="overflow-y-auto flex-1 px-6 py-4">
+
+              ${detailTab==="iniciativa" ? html`
+                <div class="space-y-4">
+                  <div>
+                    <p class="text-slate-500 text-xs uppercase tracking-wider mb-1.5">Problema</p>
+                    <p class="text-slate-200 text-sm leading-relaxed">${detail.problema}</p>
+                  </div>
+                  <div class="grid grid-cols-2 gap-3 text-sm">
+                    <div><p class="text-slate-500 text-xs uppercase tracking-wider mb-1">Tempo manual</p><p class="text-slate-300">${detail.tempo_manual}</p></div>
+                    <div><p class="text-slate-500 text-xs uppercase tracking-wider mb-1">Apoio AI Lead</p><p class="text-slate-300">${detail.apoio_ai_lead}</p></div>
+                    <div><p class="text-slate-500 text-xs uppercase tracking-wider mb-1">Tipo</p><p class="text-slate-300">${detail.tipo}</p></div>
+                    <div><p class="text-slate-500 text-xs uppercase tracking-wider mb-1">Complexidade</p>${Dot(detail.complexidade)}</div>
+                  </div>
+                  ${detail.notas ? html`<div><p class="text-slate-500 text-xs uppercase tracking-wider mb-1.5">Notas</p><p class="text-slate-400 text-xs bg-slate-800 rounded-lg p-3 leading-relaxed">${detail.notas}</p></div>` : null}
+
+                  <div>
+                    <p class="text-slate-500 text-xs uppercase tracking-wider mb-2">Status</p>
+                    <div class="flex flex-wrap gap-2">
+                      ${STATUS_OPTS.map(s=>html`
+                        <button key=${s} disabled=${saving===detail.id} onClick=${()=>patch(detail.id,{status:s})}
+                          class="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${detail.status===s?STA_CLR[s]+" border-transparent":"bg-transparent border-slate-700 text-slate-500 hover:text-slate-300"}">
+                          ${s}
+                        </button>
+                      `)}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p class="text-slate-500 text-xs uppercase tracking-wider mb-2">Prioridade</p>
+                    <div class="flex gap-2">
+                      ${[["Alta","border-red-500 text-red-400"],["Media","border-amber-500 text-amber-400"],["Baixa","border-slate-500 text-slate-400"]].map(([pr,clr])=>html`
+                        <button key=${pr} onClick=${()=>patch(detail.id,{prioridade:pr})}
+                          class="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${detail.prioridade===pr?clr+" bg-slate-800":"border-slate-700 text-slate-600 hover:text-slate-400"}">
+                          ${pr}
+                        </button>
+                      `)}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p class="text-slate-500 text-xs uppercase tracking-wider mb-2">Cluster</p>
+                    ${getCluster(detail.cluster_id) ? html`
+                      <div class="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-2">
+                        <span class="w-2.5 h-2.5 rounded-full" style=${{background:getCluster(detail.cluster_id).cor}}></span>
+                        <span class="text-slate-200 text-sm flex-1">${getCluster(detail.cluster_id).nome}</span>
+                        <button onClick=${()=>patch(detail.id,{cluster_id:null})} class="text-slate-500 hover:text-red-400 text-xs transition-colors">remover</button>
+                      </div>
+                    ` : clusters.length===0 ? html`
+                      <p class="text-slate-500 text-xs">Nenhum cluster criado ainda. Use o botao "Cluster" no topo.</p>
+                    ` : html`
+                      <div class="flex flex-wrap gap-2">
+                        ${clusters.map(c=>html`
+                          <button key=${c.id} onClick=${()=>patch(detail.id,{cluster_id:c.id})}
+                            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-white transition-all">
+                            <span class="w-2 h-2 rounded-full" style=${{background:c.cor}}></span>${c.nome}
+                          </button>
+                        `)}
+                      </div>
+                    `}
+                  </div>
+                </div>
+              ` : html`
+                <div>
+                  ${analisando===detail.id ? html`
+                    <div class="flex flex-col items-center justify-center py-16 gap-4 text-slate-400">
+                      ${IconLoader(28)}
+                      <p class="text-sm">Gerando analise Canvas... (30-60 segundos)</p>
+                      <p class="text-xs text-slate-600">A IA esta analisando o problema, propondo solucao e calculando ROI</p>
+                    </div>
+                  ` : detail.analise_canvas ? html`
+                    <div class="space-y-4">
+                      <div class="flex items-center justify-between">
+                        <p class="text-slate-500 text-xs">Gerado em ${detail.analise_gerada_em ? new Date(detail.analise_gerada_em).toLocaleString("pt-BR") : "—"}</p>
+                        <button onClick=${()=>generateAnalysis(detail)} class="flex items-center gap-1 text-slate-500 hover:text-slate-300 text-xs transition-colors">
+                          ${IconRefresh(11)} Regenerar
+                        </button>
+                      </div>
+
+                      <div class="bg-slate-800 rounded-xl p-4">
+                        <div class="flex flex-wrap gap-2 mb-2">
+                          <span class="${viabBadge(detail.analise_canvas.viabilidade)} text-white px-2 py-0.5 rounded-full text-xs font-bold">${(detail.analise_canvas.viabilidade||"").toUpperCase() || "—"}</span>
+                          <span class="bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full text-xs">${detail.analise_canvas.complexidade}</span>
+                        </div>
+                        <p class="text-white text-sm font-semibold mb-2 leading-snug">${detail.analise_canvas.ideiaFrase}</p>
+                        <div class="flex flex-wrap gap-3 text-xs text-slate-400">
+                          <span>⏱ <span class="text-slate-200">${detail.analise_canvas.tempo||"—"}</span></span>
+                          <span>💰 <span class="text-slate-200">${detail.analise_canvas.custo||"—"}</span></span>
+                          <span>📈 <span class="text-slate-200">${detail.analise_canvas.roi||"—"}</span></span>
+                        </div>
+                        ${detail.analise_canvas.okrConexao ? html`<p class="text-slate-400 text-xs mt-2 border-t border-slate-700 pt-2">🎯 ${detail.analise_canvas.okrConexao}</p>` : null}
+                      </div>
+
+                      <div class="space-y-2">
+                        ${[
+                          ["🔴 Problema",          detail.analise_canvas.problema],
+                          ["🟢 Solucao",           detail.analise_canvas.solucao],
+                          ["🔵 Stack",             detail.analise_canvas.stack],
+                          ["📅 Roadmap",           detail.analise_canvas.roadmap],
+                          ["📊 Estimativas e ROI", detail.analise_canvas.estimativas],
+                          ["⚠️ Riscos",            detail.analise_canvas.riscos],
+                          ["✅ Proximos Passos",   detail.analise_canvas.proximosPassos],
+                        ].map(([titulo, conteudo])=>html`
+                          <div key=${titulo}
+                            onClick=${()=>setExpanded(expanded===titulo?null:titulo)}
+                            class="bg-slate-800 hover:bg-slate-800/70 rounded-lg p-3 cursor-pointer transition-colors">
+                            <div class="flex items-center justify-between">
+                              <p class="text-slate-300 text-xs font-semibold">${titulo}</p>
+                              <span class="text-slate-500 text-xs">${expanded===titulo?"▲":"▼"}</span>
+                            </div>
+                            ${expanded===titulo ? html`
+                              <p class="text-slate-400 text-xs leading-relaxed whitespace-pre-line mt-2">${conteudo||"—"}</p>
+                            ` : html`
+                              <p class="text-slate-600 text-xs mt-1 line-clamp-1">${(conteudo||"").substring(0,90)}...</p>
+                            `}
+                          </div>
+                        `)}
+                      </div>
+
+                      <div class="rounded-xl p-4 text-center" style=${{background:recColor(detail.analise_canvas.recomendacao)}}>
+                        <p class="text-white font-bold text-sm">RECOMENDACAO: ${(detail.analise_canvas.recomendacao||"").toUpperCase() || "—"}</p>
+                        <p class="text-white/80 text-xs mt-1">${detail.analise_canvas.recomendacaoDesc}</p>
+                      </div>
+
+                      ${detail.analise_canvas.resumoForms ? html`
+                        <div class="bg-slate-800 border-2 border-dashed border-slate-600 rounded-xl p-4">
+                          <div class="flex items-center justify-between mb-2">
+                            <p class="text-slate-400 text-xs font-semibold uppercase tracking-wide">Resumo para Forms</p>
+                            <button onClick=${copiarResumo} class="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold transition-all ${copiado?"bg-emerald-600 text-white":"bg-slate-700 text-slate-300 hover:bg-slate-600"}">
+                              ${copiado ? IconCheck(11) : IconCopy(11)} ${copiado ? "Copiado!" : "Copiar"}
+                            </button>
+                          </div>
+                          <pre class="text-slate-400 text-xs leading-relaxed whitespace-pre-wrap font-mono bg-slate-900 rounded-lg p-3">${detail.analise_canvas.resumoForms}</pre>
+                        </div>
+                      ` : null}
+                    </div>
+                  ` : html`
+                    <div class="flex flex-col items-center justify-center py-12 gap-4">
+                      <div class="text-center mb-2">
+                        <p class="text-white font-semibold mb-1">Canvas IA nao gerado ainda</p>
+                        <p class="text-slate-500 text-xs max-w-xs">A IA vai analisar esta iniciativa em detalhe: problema, solucao, stack, roadmap, ROI, riscos e recomendacao.</p>
+                      </div>
+                      <button onClick=${()=>generateAnalysis(detail)}
+                        class="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold text-sm transition-colors shadow-lg">
+                        ${IconZap(16)} Gerar Analise Canvas
+                      </button>
+                    </div>
+                  `}
+                </div>
+              `}
+            </div>
+          </div>
+        </div>
+      ` : null}
+
+      ${cModal ? html`
+        <div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick=${()=>setCModal(false)}>
+          <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md" onClick=${e=>e.stopPropagation()}>
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-white font-bold">Novo Cluster</h3>
+              <button onClick=${()=>setCModal(false)} class="text-slate-500 hover:text-white">${IconX(18)}</button>
+            </div>
+            <div class="space-y-4">
+              <div>
+                <label class="text-slate-400 text-xs mb-1.5 block">Nome *</label>
+                <input type="text" value=${newC.nome} onChange=${e=>setNewC(p=>({...p,nome:e.target.value}))}
+                  placeholder="Ex: Ecossistema de Atendimento"
+                  class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500" />
+              </div>
+              <div>
+                <label class="text-slate-400 text-xs mb-1.5 block">Descricao (opcional)</label>
+                <input type="text" value=${newC.descricao} onChange=${e=>setNewC(p=>({...p,descricao:e.target.value}))}
+                  class="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500" />
+              </div>
+              <div>
+                <label class="text-slate-400 text-xs mb-1.5 block">Cor</label>
+                <div class="flex flex-wrap gap-2">
+                  ${CLR_CLUST.map(c=>html`
+                    <button key=${c} onClick=${()=>setNewC(p=>({...p,cor:c}))}
+                      class="w-8 h-8 rounded-full border-2 transition-all ${newC.cor===c?"border-white scale-110":"border-transparent hover:scale-105"}"
+                      style=${{background:c}}></button>
+                  `)}
+                </div>
+              </div>
+              ${clusters.length>0 ? html`
+                <div>
+                  <label class="text-slate-400 text-xs mb-1.5 block">Clusters existentes</label>
+                  <div class="space-y-1 max-h-28 overflow-y-auto">
+                    ${clusters.map(c=>html`
+                      <div key=${c.id} class="flex items-center gap-2 text-xs text-slate-400">
+                        <span class="w-2.5 h-2.5 rounded-full" style=${{background:c.cor}}></span>
+                        <span class="flex-1">${c.nome}</span>
+                        <span class="text-slate-600">${iniciativas.filter(i=>i.cluster_id===c.id).length} ini.</span>
+                      </div>
+                    `)}
+                  </div>
+                </div>
+              ` : null}
+              <button onClick=${createCluster} disabled=${!newC.nome.trim()}
+                class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-sm font-semibold transition-colors">
+                Criar Cluster
+              </button>
+            </div>
+          </div>
+        </div>
+      ` : null}
+    </div>
+  `;
+}
+
+render(html`<${App} />`, document.getElementById("root"));
+</script>
+</body>
+</html>
