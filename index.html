@@ -31,7 +31,7 @@ const html = htm.bind(h);
    servidor (api/analyze.js), configurada como variável de ambiente. */
 const SURL = "https://dckvqweuinsgadhkkjqx.supabase.co";
 const SKEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRja3Zxd2V1aW5zZ2FkaGtranF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwMjExMzAsImV4cCI6MjA5MjU5NzEzMH0.ad4dQWm33fZMUKu4jJkcbBcLvr2FUcXW-ztril7rvd8";
-const ANALYZE_ENDPOINT = "/api/analyze";
+const ANALYZE_ENDPOINT = "https://etc-filmes-proxy-ph3dsfz3q-mauricioalescanino-hubs-projects.vercel.app/api/anthropic";
 
 /* ================= CONSTANTS ================= */
 const STATUS_OPTS = ["Backlog","Em Analise","Aprovada","Em Desenvolvimento","Concluida"];
@@ -47,6 +47,103 @@ const STA_CLR = { Backlog:"bg-slate-800 text-slate-400", "Em Analise":"bg-amber-
 
 const viabBadge = (v) => { if (!v) return "bg-slate-600"; const l=v.toLowerCase(); if(l.includes("alta")) return "bg-emerald-500"; if(l.includes("dia")||l.includes("edia")) return "bg-amber-500"; return "bg-red-500"; };
 const recColor  = (r) => { if (!r) return "#475569"; const l=r.toLowerCase(); if(l.includes("aprovar")&&!l.includes("ajuste")&&!l.includes("nao")) return "#059669"; if(l.includes("ajuste")) return "#d97706"; return "#dc2626"; };
+
+/* ================= PROMPT DE ANALISE =================
+   O proxy etc-filmes-proxy (api/anthropic.js) so repassa o body recebido
+   para a API da Anthropic — entao o prompt precisa ser montado aqui,
+   no navegador, antes de enviar. */
+const ANALYSIS_PROMPT = [
+  "Voce e um AVALIADOR DE INICIATIVAS DE IA da ETC Filmes, empresa brasileira de audiovisual especializada em acessibilidade (audiodescricao, legendagem descritiva, Libras) e pos-producao cinematografica.",
+  "",
+  "CONTEXTO DA ETC FILMES:",
+  "- Empresa com ~50 colaboradores, areas: Comercial, Producao, Logistica, Financeiro, TI, RH, Marketing, Atendimento",
+  "- OKR 1: Crescer receita para R$ 10M (prospeccao, propostas, conversao, novos servicos)",
+  "- OKR 2: Garantir margem de contribuicao de R$ 4,4M (eficiencia, reducao de retrabalho, automacao de processos)",
+  "- Stack disponivel: Python, JavaScript, SQL, APIs REST, Microsoft 365 (Teams, Planner, Forms, Power Automate, SharePoint)",
+  "- Ferramenta principal de IA: Claude (Anthropic) — ja em uso pela equipe",
+  "- Os executores das iniciativas sao Embaixadores de area e membros do time, nao sao desenvolvedores dedicados. Solucoes devem ser simples de adotar e manter.",
+  "- Iniciativas complexas podem contar com apoio do AI Lead para desenvolvimento tecnico.",
+  "",
+  "Analise a ideia abaixo com rigor e objetividade. Seja conciso: cada secao no maximo 3-4 paragrafos curtos ou bullets diretos.",
+  "",
+  "ESTRUTURA OBRIGATORIA DE RESPOSTA:",
+  "",
+  "## 1. RESUMO EXECUTIVO",
+  "- **Ideia em 1 frase:** [resumir em 10-15 palavras]",
+  "- **Viabilidade:** [Alta/Media/Baixa] - [justificar em 1 linha]",
+  "- **Complexidade:** [1 a 5 estrelas]",
+  "- **Tempo estimado:** [X semanas]",
+  "- **Custo estimado:** R$ [setup] + R$ [mensal]",
+  "- **ROI esperado:** [resultado em 1 linha]",
+  "",
+  "## 2. ALINHAMENTO COM OKRs",
+  "- **OKR impactado:** [OKR 1 Receita / OKR 2 Margem / Transversal / Nenhum]",
+  "- **Conexao:** [explicar em 1-2 frases como essa ideia move o OKR]",
+  "- **Impacto estimado:** [quantificar: horas economizadas, receita potencial, custo evitado]",
+  "- **Prioridade sugerida:** [Alta / Media / Baixa — justificar]",
+  "",
+  "## 3. ANALISE DA DOR",
+  "### Problema Atual",
+  "[2 paragrafos curtos]",
+  "### Impacto Atual",
+  "- **Frequencia:** [diario/semanal/mensal]",
+  "- **Tempo perdido:** [horas/mes]",
+  "- **Pessoas afetadas:** [numero e areas]",
+  "",
+  "## 4. SOLUCAO PROPOSTA",
+  "### Visao Geral",
+  "[2 paragrafos]",
+  "### Como Funciona",
+  "[fluxo simples]",
+  "### Componentes Principais",
+  "- [Componente]: [tecnologia]",
+  "",
+  "## 5. STACK TECNOLOGICO",
+  "### Ferramentas Recomendadas",
+  "[Priorizar: Claude, Microsoft 365, Power Automate]",
+  "### Custos",
+  "- **Total estimado:** R$ Z/mes",
+  "",
+  "## 6. ROADMAP DE IMPLEMENTACAO",
+  "### FASE 1: MVP ([X] semanas)",
+  "- [ ] [Acao 1]",
+  "- [ ] [Acao 2]",
+  "### FASE 2: Implantacao ([Y] semanas)",
+  "- [ ] [Acao 3]",
+  "",
+  "## 7. ESTIMATIVAS",
+  "- MVP: [X] horas de trabalho",
+  "- Economia: [X] horas/mes",
+  "- Break-even: [N] meses",
+  "- Ganho anual estimado: R$ [valor]",
+  "",
+  "## 8. RISCOS",
+  "- **Risco 1:** [desc] — Mitigacao: [solucao]",
+  "- **Risco 2:** [desc] — Mitigacao: [solucao]",
+  "",
+  "## 9. PROXIMOS PASSOS",
+  "### Imediato (esta semana)",
+  "1. [ ] [Acao]",
+  "### Curto prazo (2 semanas)",
+  "1. [ ] [Acao]",
+  "",
+  "### RECOMENDACAO FINAL",
+  "**[APROVAR / APROVAR COM AJUSTES / NAO APROVAR AGORA]** - [justificar em 1-2 linhas]",
+  "",
+  "---",
+  "",
+  "### RESUMO PARA SUBMISSAO AO FORMS",
+  "IDEIA: [titulo em 1 linha]",
+  "PROBLEMA: [2 frases]",
+  "OKR IMPACTADO: [OKR 1 / OKR 2 / Transversal]",
+  "IMPACTO ESTIMADO: [horas ou receita]",
+  "TEMPO MANUAL ATUAL: [horas/semana ou mes]",
+  "ESFORCO: [Baixo / Medio / Alto]",
+  "PRECISA DE APOIO DO AI LEAD: [Sim / Nao / Talvez]",
+  "RECOMENDACAO DA SKILL: [APROVAR / APROVAR COM AJUSTES / NAO APROVAR AGORA]",
+  "",
+  "ATENCAO: O bloco RESUMO PARA SUBMISSAO AO FORMS e OBRIGATORIO e deve sempre aparecer preenchido ao final.",
+].join("\n");
 
 /* ================= PARSER DA RESPOSTA DA IA ================= */
 const parseAnalise = (txt) => {
@@ -188,22 +285,28 @@ function App() {
     setAnalisando(ini.id);
     setDetailTab("canvas");
     try {
+      const content = ANALYSIS_PROMPT +
+        "\n\nAREA DO COLABORADOR: " + ini.area +
+        "\n\nIDEIA SUBMETIDA:" +
+        "\nProblema: " + ini.problema +
+        "\nImpacto esperado: " + ini.impacto +
+        "\nTempo manual atual: " + ini.tempo_manual +
+        "\nPrecisa de apoio do AI Lead: " + ini.apoio_ai_lead +
+        "\nClassificacao interna: " + ini.classificacao +
+        "\nTipo de iniciativa: " + ini.tipo;
+
       const r = await fetch(ANALYZE_ENDPOINT, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          area: ini.area,
-          problema: ini.problema,
-          impacto: ini.impacto,
-          tempo_manual: ini.tempo_manual,
-          apoio_ai_lead: ini.apoio_ai_lead,
-          classificacao: ini.classificacao,
-          tipo: ini.tipo,
+          model: "claude-sonnet-4-5",
+          max_tokens: 4000,
+          messages: [{ role: "user", content }],
         }),
       });
       const data = await r.json().catch(()=>({}));
-      if (!r.ok || data.error) throw new Error(data.error || ("Erro da API: "+r.status));
-      const texto = data.text;
+      if (!r.ok || data.error) throw new Error(data.error?.message || data.error || ("Erro da API: "+r.status));
+      const texto = data?.content?.[0]?.text;
       if (!texto) throw new Error("Resposta vazia da API.");
 
       const parsed = parseAnalise(texto);
