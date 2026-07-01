@@ -730,6 +730,9 @@ function App() {
                   <div>${SL("Classificação")}
                     ${ChoiceRow({opts:CLASSIFS, val:detail.classificacao, styleMap:CLF, onPick:c=>patch(detail.id,{classificacao:c})})}
                   </div>
+                  <div>${SL("OKR")}
+                    ${ChoiceRow({opts:OKRS, val:detail.okr, styleMap:OKR, onPick:o=>patch(detail.id,{okr:o})})}
+                  </div>
                   <div>${SL("Prioridade")}
                     ${ChoiceRow({opts:PRIORS, val:detail.prioridade, styleMap:PRI, onPick:p=>patch(detail.id,{prioridade:p})})}
                   </div>
@@ -750,6 +753,21 @@ function App() {
                             <span class="rounded-full" style=${"width:7px;height:7px;background:"+c.cor+";display:inline-block"}></span>
                             ${c.nome}
                           </button>`)}`}
+                  </div>
+
+                  <!-- EXCLUIR -->
+                  <div style="margin-top:8px;padding-top:16px;border-top:1px solid #F1F5F9">
+                    <button onClick=${async ()=>{
+                      if (!confirm("Excluir esta iniciativa permanentemente? Esta ação não pode ser desfeita.")) return;
+                      try {
+                        await supa("iniciativas?id=eq."+detail.id, {method:"DELETE"});
+                        setIniciativas(p=>p.filter(i=>i.id!==detail.id));
+                        setDetail(null);
+                      } catch(e) { alert("Erro ao excluir: "+e.message); }
+                    }}
+                      style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;background:#FEE8ED;color:#F73A60;border:1px solid #FECDD3;transition:all .15s">
+                      ${IconX(12)} Excluir iniciativa
+                    </button>
                   </div>
                 </div>
 
