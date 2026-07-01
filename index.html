@@ -596,6 +596,18 @@ function App() {
                   </div>
 
                   <div>
+                    <p class="text-slate-500 text-xs uppercase tracking-wider mb-2">Classificacao</p>
+                    <div class="flex flex-wrap gap-2">
+                      ${CLASSIFS.map(c=>html`
+                        <button key=${c} disabled=${saving===detail.id} onClick=${()=>patch(detail.id,{classificacao:c})}
+                          class="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${detail.classificacao===c?CLF_CLR[c]+" text-white border-transparent":"bg-transparent border-slate-700 text-slate-500 hover:text-slate-300"}">
+                          ${c}
+                        </button>
+                      `)}
+                    </div>
+                  </div>
+
+                  <div>
                     <p class="text-slate-500 text-xs uppercase tracking-wider mb-2">Prioridade</p>
                     <div class="flex gap-2">
                       ${[["Alta","border-red-500 text-red-400"],["Media","border-amber-500 text-amber-400"],["Baixa","border-slate-500 text-slate-400"]].map(([pr,clr])=>html`
@@ -760,6 +772,7 @@ function App() {
                         <span class="w-2.5 h-2.5 rounded-full" style=${{background:c.cor}}></span>
                         <span class="flex-1">${c.nome}</span>
                         <span class="text-slate-600">${iniciativas.filter(i=>i.cluster_id===c.id).length} ini.</span>
+                        <button onClick=${()=>deleteCluster(c.id)} class="text-slate-600 hover:text-red-400 transition-colors" title="Excluir cluster">${IconX(12)}</button>
                       </div>
                     `)}
                   </div>
