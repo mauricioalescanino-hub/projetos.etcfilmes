@@ -309,7 +309,8 @@ function App() {
   const [detailTab,   setDetailTab]   = useState("iniciativa");
   const [cModal,      setCModal]      = useState(false);
   const [newC,        setNewC]        = useState({nome:"",descricao:"",cor:CLR_CLUST[0],prioridade:"Media"});
-  const [editingClusterPri, setEditingClusterPri] = useState(null);
+  const [editingClusterPri,  setEditingClusterPri]  = useState(null);
+  const [editingClusterName, setEditingClusterName] = useState(null); // {id, nome, descricao}
   const [niModal,     setNiModal]     = useState(false);
   const [niSaving,    setNiSaving]    = useState(false);
   const EMPTY_NI = {nome_colaborador:"",area:AREAS[0],problema:"",impacto:"",tempo_manual:"",apoio_ai_lead:"Talvez",tipo:"",classificacao:"Projeto",okr:"OKR 2 Margem",complexidade:3,prioridade:"Alta",status:"Backlog",notas:""};
@@ -1091,21 +1092,32 @@ function App() {
               ${clusters.length>0 ? html`
                 <div>
                   <label class="section-label" style="display:block">Clusters existentes</label>
-                  <div style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto">
+                  <div style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto">
                     ${clusters.map(c=>{
                       const pri = c.prioridade || "Media";
                       const priStyle = pri==="Alta"?"background:#FEE8ED;color:#F73A60;border-color:#FECDD3"
                         :pri==="Baixa"?"background:#F1F5F9;color:#475569;border-color:#CBD5E1"
                         :"background:#FFFBEB;color:#D97706;border-color:#FDE68A";
+                      const isEditingName = editingClusterName?.id === c.id;
+                      const isEditingPri  = editingClusterPri === c.id;
                       return html`
-                        <div key=${c.id} style="display:flex;flex-direction:column;gap:4px">
+                        <div key=${c.id} style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;border-radius:8px;background:${isEditingName?"#F7F9FC":"transparent"};border:1px solid ${isEditingName?"#E8ECF1":"transparent"}">
                           <div class="flex items-center gap-2" style="font-size:12px;color:#4A4A4A">
                             <span class="rounded-full" style=${"width:8px;height:8px;background:"+c.cor+";display:inline-block;flex-shrink:0"}></span>
-                            <span style="flex:1">${c.nome}</span>
-                            <button onClick=${()=>setEditingClusterPri(editingClusterPri===c.id?null:c.id)}
+                            <span style="flex:1;font-weight:${isEditingName?600:400}">${c.nome}</span>
+                            <!-- badge prioridade -->
+                            <button onClick=${()=>{ setEditingClusterPri(isEditingPri?null:c.id); setEditingClusterName(null); }}
                               title="Editar prioridade"
                               style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;cursor:pointer;transition:all .15s;"+priStyle}>
                               ${pri}
+                            </button>
+                            <!-- lapis editar nome -->
+                            <button onClick=${()=>{ setEditingClusterName(isEditingName?null:{id:c.id,nome:c.nome,descricao:c.descricao||""}); setEditingClusterPri(null); }}
+                              title="Editar nome e descrição"
+                              style="background:none;border:none;cursor:pointer;padding:2px;color:${isEditingName?"#009FCF":"#C0C4CC"};transition:color .15s"
+                              onMouseEnter=${e=>e.currentTarget.style.color="#009FCF"}
+                              onMouseLeave=${e=>e.currentTarget.style.color=isEditingName?"#009FCF":"#C0C4CC"}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             </button>
                             <span style="color:#C0C4CC;font-size:11px">${iniciativas.filter(i=>i.cluster_id===c.id).length} ini.</span>
                             <button onClick=${()=>deleteCluster(c.id)}
@@ -1115,7 +1127,8 @@ function App() {
                               ${IconX(12)}
                             </button>
                           </div>
-                          ${editingClusterPri===c.id ? html`
+                          <!-- seletor prioridade inline -->
+                          ${isEditingPri ? html`
                             <div class="flex gap-1.5 pl-4">
                               ${[["Alta","#F73A60","#FEE8ED","#FECDD3"],["Media","#D97706","#FFFBEB","#FDE68A"],["Baixa","#475569","#F1F5F9","#CBD5E1"]].map(([pr,clr,bg,bd])=>html`
                                 <button key=${pr}
@@ -1124,6 +1137,36 @@ function App() {
                                     +(pri===pr?"background:"+bg+";color:"+clr+";border-color:"+bd:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
                                   ${pr}
                                 </button>`)}
+                            </div>` : null}
+                          <!-- form editar nome/descrição inline -->
+                          ${isEditingName ? html`
+                            <div style="display:flex;flex-direction:column;gap:6px;padding-left:16px;padding-top:2px">
+                              <input type="text"
+                                value=${editingClusterName.nome}
+                                onChange=${e=>setEditingClusterName(p=>({...p,nome:e.target.value}))}
+                                placeholder="Nome do cluster"
+                                style="width:100%;padding:6px 10px;background:#fff;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none;box-sizing:border-box" />
+                              <input type="text"
+                                value=${editingClusterName.descricao}
+                                onChange=${e=>setEditingClusterName(p=>({...p,descricao:e.target.value}))}
+                                placeholder="Descrição (opcional)"
+                                style="width:100%;padding:6px 10px;background:#fff;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none;box-sizing:border-box" />
+                              <div class="flex gap-2">
+                                <button
+                                  disabled=${!editingClusterName.nome.trim()}
+                                  onClick=${async ()=>{
+                                    await patchCluster(c.id,{nome:editingClusterName.nome.trim(),descricao:editingClusterName.descricao});
+                                    setEditingClusterName(null);
+                                  }}
+                                  style=${"padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:none;transition:all .15s;"
+                                    +(editingClusterName.nome.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
+                                  Salvar
+                                </button>
+                                <button onClick=${()=>setEditingClusterName(null)}
+                                  style="padding:5px 12px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;background:#fff;color:#9193A0;border:1px solid #E8ECF1">
+                                  Cancelar
+                                </button>
+                              </div>
                             </div>` : null}
                         </div>`; })}
                   </div>
