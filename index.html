@@ -298,7 +298,154 @@ const supa = async (path, opts={}) => {
 };
 
 /* ─── APP ────────────────────────────────────────────────── */
-/* ─── PLANEJAMENTO TAB ───────────────────────────────────── */
+
+/* ─── VISAO TAB ──────────────────────────────────────────── */
+function VisaoTab({ detail, patch }) {
+  const visao = detail.declaracao_visao || {};
+  const [saving, setSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState(null);
+  const [form, setForm] = useState({
+    titulo:        visao.titulo        || "",
+    subtitulo:     visao.subtitulo     || "Declaração de Visão · One Pager",
+    visao_proj:    visao.visao_proj    || "",
+    sponsor:       visao.sponsor       || "",
+    pm:            visao.pm            || "",
+    status_proj:   visao.status_proj   || "",
+    deadline:      visao.deadline      || "",
+    objetivo:      visao.objetivo      || "",
+    viabilidade:   visao.viabilidade   || "",
+    okr_rel:       visao.okr_rel       || "",
+    kpis:          visao.kpis          || "",
+    justificativa: visao.justificativa || "",
+    equipe:        visao.equipe        || "",
+    premissas:     visao.premissas     || "",
+    restricoes:    visao.restricoes    || "",
+    escopo:        visao.escopo        || "",
+  });
+
+  // Re-sincronizar form quando detail mudar (ex: abertura de outra iniciativa)
+  useEffect(()=>{
+    const v = detail.declaracao_visao || {};
+    setForm({
+      titulo:        v.titulo        || "",
+      subtitulo:     v.subtitulo     || "Declaração de Visão · One Pager",
+      visao_proj:    v.visao_proj    || "",
+      sponsor:       v.sponsor       || "",
+      pm:            v.pm            || "",
+      status_proj:   v.status_proj   || "",
+      deadline:      v.deadline      || "",
+      objetivo:      v.objetivo      || "",
+      viabilidade:   v.viabilidade   || "",
+      okr_rel:       v.okr_rel       || "",
+      kpis:          v.kpis          || "",
+      justificativa: v.justificativa || "",
+      equipe:        v.equipe        || "",
+      premissas:     v.premissas     || "",
+      restricoes:    v.restricoes    || "",
+      escopo:        v.escopo        || "",
+    });
+  }, [detail.id]);
+
+  const set = (k) => (e) => setForm(p=>({...p,[k]:e.target.value}));
+
+  // Auto-save com debounce
+  useEffect(()=>{
+    const t = setTimeout(async()=>{
+      setSaving(true);
+      await patch(detail.id, { declaracao_visao: form });
+      setLastSaved(new Date());
+      setSaving(false);
+    }, 800);
+    return ()=>clearTimeout(t);
+  }, [form]);
+
+  const FI = ({label,hint,k,rows=1,placeholder=""}) => html`
+    <div style="display:flex;flex-direction:column;gap:3px">
+      ${label ? html`<p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:11px;color:#1C1C1C;margin:0">${label}</p>` : null}
+      ${hint  ? html`<p style="font-size:10px;color:#9193A0;margin:0;font-style:italic;line-height:1.4">${hint}</p>` : null}
+      ${rows>1 ? html`
+        <textarea value=${form[k]} onChange=${set(k)} placeholder=${placeholder} rows=${rows}
+          style="width:100%;padding:8px 10px;background:#fff;border:1px dashed #C9D0D3;border-radius:6px;color:#23282C;font-size:12.5px;line-height:1.55;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif;outline:none;transition:border-color .15s"
+          onFocus=${e=>e.target.style.borderColor="#009FCF"} onBlur=${e=>e.target.style.borderColor="#C9D0D3"}>
+        </textarea>` : html`
+        <input type="text" value=${form[k]} onChange=${set(k)} placeholder=${placeholder}
+          style="width:100%;padding:7px 10px;background:#fff;border:1px dashed #C9D0D3;border-radius:6px;color:#23282C;font-size:12.5px;box-sizing:border-box;font-family:'Inter',sans-serif;outline:none;transition:border-color .15s"
+          onFocus=${e=>e.target.style.borderColor="#009FCF"} onBlur=${e=>e.target.style.borderColor="#C9D0D3"} />`}
+    </div>`;
+
+  const SMART_PILLS = html`
+    <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
+      ${[["S","#e13a34"],["M","#f0821e"],["A","#c99400"],["R","#0e8f74"],["T","#1c5f8a"]].map(([l,c])=>html`
+        <span key=${l} style=${"font-size:9.5px;font-weight:800;padding:2px 7px;border-radius:20px;color:#fff;background:"+c}>${l}</span>`)}
+    </div>`;
+
+  return html`
+    <div style="display:flex;flex-direction:column;gap:0">
+
+      <!-- barra de status -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0">
+          Declaração de Visão — One Pager
+        </p>
+        <span style="font-size:11px;color:#9193A0">
+          ${saving ? "Salvando…" : lastSaved ? "Salvo às "+lastSaved.toLocaleTimeString("pt-BR") : "Preencha os campos abaixo"}
+        </span>
+      </div>
+
+      <!-- bloco header -->
+      <div style="padding:16px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:12px 12px 0 0;border-bottom:none;display:flex;flex-direction:column;gap:6px;text-align:center">
+        ${FI({k:"titulo",placeholder:"NOME DO PROJETO",hint:""})}
+        ${FI({k:"subtitulo",placeholder:"Subtítulo",hint:""})}
+      </div>
+
+      <!-- visão -->
+      <div style="padding:14px 16px;border:1px solid #E8ECF1;border-bottom:none">
+        ${FI({label:"Visão do Projeto",hint:"Resuma em 1 ou 2 frases o que o projeto entrega e o valor gerado.",k:"visao_proj",rows:2,placeholder:"Descreva em poucas frases o que o projeto entrega e o valor que gera..."})}
+      </div>
+
+      <!-- grade meta (2 colunas) -->
+      <div style="padding:14px 16px;border:1px solid #E8ECF1;border-bottom:none;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        ${FI({label:"Sponsor",hint:"O líder que patrocina e aprova prioridade, orçamento e remove obstáculos.",k:"sponsor",placeholder:"Ex.: Mauricio Ales — Diretor Comercial"})}
+        ${FI({label:"Project Manager",hint:"A pessoa responsável por coordenar a execução no dia a dia.",k:"pm",placeholder:"Ex.: Matheus"})}
+        ${FI({label:"Status",hint:"Em que fase o projeto está agora.",k:"status_proj",placeholder:"Ex.: Em execução"})}
+        ${FI({label:"Deadline",hint:"Mês e ano em que o projeto precisa estar concluído.",k:"deadline",placeholder:"Ex.: Agosto/2026"})}
+      </div>
+
+      <!-- objetivo SMART + KPIs (2 colunas, fundo azul) -->
+      <div style="padding:16px;background:linear-gradient(180deg,#6fcadf,#4bb6d2);border:1px solid #4bb6d2;border-bottom:none;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${SMART_PILLS}
+          ${FI({label:"Objetivo (SMART)",hint:"Específico e mensurável, com prazo definido: o quê, para que escopo, com que meta e até quando.",k:"objetivo",rows:3,placeholder:"Ex.: Implementar um sistema que mapeie 100% dos itens previstos até [mês/ano]..."})}
+          ${FI({label:"Viabilidade (Atingível)",hint:"Por que essa meta é viável com a equipe, orçamento e tecnologia disponíveis?",k:"viabilidade",rows:2,placeholder:"Explique por que a meta é alcançável com os recursos atuais..."})}
+          ${FI({label:"OKR Relacionada (Relevante)",hint:"Qual OKR da empresa este objetivo ajuda a atingir?",k:"okr_rel",placeholder:"Cite a OKR relacionada..."})}
+        </div>
+        <div>
+          ${FI({label:"Métricas de Sucesso — KPIs (Mensurável)",hint:"Indicadores com valor-alvo e prazo. Ex.: 'Aumentar em 20% as propostas enviadas por mês até dez/2026'.",k:"kpis",rows:8,placeholder:"Um KPI por linha..."})}
+        </div>
+      </div>
+
+      <!-- justificativa + equipe (2 colunas) -->
+      <div style="padding:14px 16px;border:1px solid #E8ECF1;border-bottom:none;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        ${FI({label:"Justificativa",hint:"Por que este projeto existe? Qual dor, gargalo ou oportunidade ele resolve?",k:"justificativa",rows:4,placeholder:"Liste os motivos que justificam o projeto..."})}
+        ${FI({label:"Equipe e Partes Interessadas",hint:"Quem executa e quem influencia ou é impactado pelo projeto?",k:"equipe",rows:4,placeholder:"Liste nomes e papéis, um por linha..."})}
+      </div>
+
+      <!-- premissas / restrições / escopo (3 colunas coloridas) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid #E8ECF1;border-radius:0 0 12px 12px;overflow:hidden">
+        <div style="padding:14px 12px;background:linear-gradient(180deg,#e4f6e6,#8fcf9a)">
+          ${FI({label:"Premissas",hint:"O que está sendo assumido como verdadeiro, mesmo sem confirmação total?",k:"premissas",rows:5,placeholder:"Liste as premissas do projeto..."})}
+        </div>
+        <div style="padding:14px 12px;background:linear-gradient(180deg,#fff2c4,#f2c94c);border-left:1px solid rgba(0,0,0,0.06);border-right:1px solid rgba(0,0,0,0.06)">
+          ${FI({label:"Restrições e Riscos",hint:"Quais limitações e incertezas podem afetar o projeto?",k:"restricoes",rows:5,placeholder:"Liste restrições e riscos identificados..."})}
+        </div>
+        <div style="padding:14px 12px;background:linear-gradient(180deg,#f6a29c,#f6c3d3)">
+          ${FI({label:"Escopo Excluído",hint:"O que explicitamente não faz parte deste projeto?",k:"escopo",rows:5,placeholder:"Liste o que não será feito..."})}
+        </div>
+      </div>
+
+    </div>`;
+}
+
 /* ─── PLANEJAMENTO TAB ───────────────────────────────────── */
 function PlanejamentoTab({ detail, patch }) {
   const etapas = detail.planejamento  || [];
@@ -1025,13 +1172,18 @@ function App() {
               </div>
               <p style="color:#9193A0;font-size:12px;margin-bottom:14px">👤 ${detail.nome_colaborador}</p>
               <div class="flex gap-1">
-                ${[["iniciativa","Iniciativa"],["planejamento","Planejamento"]].map(([tab,lbl])=>html`
+                ${[
+                  ["iniciativa","Iniciativa"],
+                  ["planejamento","Planejamento"],
+                  ...(detail.classificacao==="Projeto" ? [["visao","Declaração de Visão"]] : []),
+                ].map(([tab,lbl])=>html`
                   <button key=${tab} onClick=${()=>setDetailTab(tab)}
                     style=${"padding:8px 16px;border-radius:8px 8px 0 0;font-size:12px;font-weight:600;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;gap:6px;"
                       +(detailTab===tab?"color:#009FCF;border-bottom:2px solid #009FCF":"color:#9193A0;border-bottom:2px solid transparent")}>
                     ${lbl}
                     ${tab==="planejamento"&&detail.planejamento?.length ? html`<span style="background:#009FCF;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:999px">${detail.planejamento.length}</span>` : null}
                     ${tab==="planejamento"&&detail.analise_smart ? html`<span class="rounded-full" style="width:6px;height:6px;background:#6D28D9;display:inline-block"></span>` : null}
+                    ${tab==="visao"&&detail.declaracao_visao ? html`<span class="rounded-full" style="width:6px;height:6px;background:#00BE8C;display:inline-block"></span>` : null}
                   </button>`)}
               </div>
             </div>
@@ -1090,7 +1242,7 @@ function App() {
                       ${IconX(12)} Excluir iniciativa
                     </button>
                   </div>
-                </div>` : html`<${PlanejamentoTab} detail=${detail} patch=${patch} />`}
+                </div>` : detailTab==="planejamento" ? html`<${PlanejamentoTab} detail=${detail} patch=${patch} />` : html`<${VisaoTab} detail=${detail} patch=${patch} />`}
             </div>
           </div>
         </div>` : null}
