@@ -1583,7 +1583,89 @@ function App() {
   `;
 }
 
-render(html`<${App} />`, document.getElementById("root"));
+/* ─── AUTH GATE ──────────────────────────────────────────── */
+const SENHA_HASH = "c8a2902f5f9d95e52a015610ba32a37f35e39affdf054279c06ee7a08cc930b6";
+
+// Hash simples via SubtleCrypto (não é criptografia de servidor, só ofuscação cliente)
+async function hashSenha(s) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+function LoginGate({ onAuth }) {
+  const [senha,   setSenha]   = useState("");
+  const [erro,    setErro]    = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [show,    setShow]    = useState(false);
+
+  const tentar = async () => {
+    if (!senha.trim()) return;
+    setLoading(true); setErro(false);
+    const h = await hashSenha(senha.trim());
+    if (h === SENHA_HASH) {
+      sessionStorage.setItem("painel_auth", "1");
+      onAuth();
+    } else {
+      setErro(true);
+    }
+    setLoading(false);
+  };
+
+  const onKey = (e) => { if (e.key === "Enter") tentar(); };
+
+  return html`
+    <div style="min-height:100vh;background:#F7F9FC;display:flex;align-items:center;justify-content:center;padding:24px">
+      <div style="background:#fff;border:1px solid #E8ECF1;border-radius:20px;padding:40px 36px;width:100%;max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,0.08)">
+
+        <!-- logo / identidade -->
+        <div style="text-align:center;margin-bottom:32px">
+          <div style="display:inline-flex;gap:5px;align-items:center;margin-bottom:12px">
+            ${["#F73A60","#00BE8C","#F5BC50","#009FCF"].map(c=>
+              html`<span style=${"width:9px;height:9px;border-radius:50%;background:"+c+";display:inline-block"}></span>`
+            )}
+          </div>
+          <p style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#009FCF;margin:0 0 6px">ETC Filmes</p>
+          <h1 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:20px;color:#1C1C1C;margin:0 0 6px">Painel de Iniciativas de IA</h1>
+          <p style="font-size:12px;color:#9193A0;margin:0">Acesso restrito à equipe ETC</p>
+        </div>
+
+        <!-- campo senha -->
+        <div style="margin-bottom:12px">
+          <label style="color:#9193A0;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:6px">Senha de acesso</label>
+          <div style="position:relative">
+            <input
+              type=${show?"text":"password"}
+              value=${senha}
+              onChange=${e=>{ setSenha(e.target.value); setErro(false); }}
+              onKeyDown=${onKey}
+              placeholder="Digite a senha..."
+              autofocus
+              style=${"width:100%;padding:11px 40px 11px 14px;background:#F7F9FC;border:1px solid "+(erro?"#F73A60":"#E8ECF1")+";border-radius:10px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box;transition:border-color .15s"} />
+            <button onClick=${()=>setShow(p=>!p)}
+              style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9193A0;padding:2px;display:flex;align-items:center">
+              ${show
+                ? html`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
+                : html`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`}
+            </button>
+          </div>
+          ${erro ? html`<p style="color:#F73A60;font-size:11px;font-weight:600;margin:6px 0 0">Senha incorreta. Tente novamente.</p>` : null}
+        </div>
+
+        <button onClick=${tentar} disabled=${loading||!senha.trim()}
+          style=${"width:100%;padding:12px;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(senha.trim()&&!loading?"background:#009FCF;color:#fff;box-shadow:0 4px 16px rgba(0,159,207,0.3)":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
+          ${loading ? "Verificando…" : "Entrar"}
+        </button>
+      </div>
+    </div>`;
+}
+
+function Root() {
+  const [authed, setAuthed] = useState(!!sessionStorage.getItem("painel_auth"));
+  if (!authed) return html`<${LoginGate} onAuth=${()=>setAuthed(true)} />`;
+  return html`<${App} />`;
+}
+
+render(html`<${Root} />`, document.getElementById("root"));
 </script>
 </body>
 </html>
