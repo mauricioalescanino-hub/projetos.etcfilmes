@@ -299,53 +299,153 @@ const supa = async (path, opts={}) => {
 
 /* ─── APP ────────────────────────────────────────────────── */
 /* ─── PLANEJAMENTO TAB ───────────────────────────────────── */
+/* ─── PLANEJAMENTO TAB ───────────────────────────────────── */
 function PlanejamentoTab({ detail, patch }) {
-  const etapas = detail.planejamento || [];
-  const [editingId, setEditingId] = useState(null);
-  const [saving,    setSaving]    = useState(false);
+  const etapas = detail.planejamento  || [];
+  const smart  = detail.analise_smart || null;
+
+  const [editingId,  setEditingId]  = useState(null);
+  const [saving,     setSaving]     = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [smartDraft, setSmartDraft] = useState(null);
+  const [planDraft,  setPlanDraft]  = useState(null);
+  const [editSmart,  setEditSmart]  = useState(false);
   const EMPTY_ETAPA = { titulo:"", responsavel:"", prazo:"", fase:"Fase 1", status:"A fazer", origem:"manual" };
-  const [form, setForm] = useState(EMPTY_ETAPA);
+  const [form,   setForm]   = useState(EMPTY_ETAPA);
   const [adding, setAdding] = useState(false);
 
-  const save = async (novas) => {
+  const SMART_KEYS = [
+    { key:"especifico", label:"S — Específico",  hint:"O que exatamente será feito? Quem está envolvido?" },
+    { key:"mensuravel", label:"M — Mensurável",  hint:"Como saberemos que foi concluído? Que métricas usaremos?" },
+    { key:"atingivel",  label:"A — Atingível",   hint:"É realista com os recursos disponíveis?" },
+    { key:"relevante",  label:"R — Relevante",   hint:"Por que isso importa agora para os OKRs da ETC?" },
+    { key:"temporal",   label:"T — Temporal",    hint:"Qual o prazo realista para conclusão?" },
+  ];
+
+  const savePlan = async (novas) => {
     setSaving(true);
     await patch(detail.id, { planejamento: novas });
+    setSaving(false);
+  };
+
+  const saveSmart = async (data) => {
+    setSaving(true);
+    await patch(detail.id, { analise_smart: { ...data, gerado_em: data.gerado_em || new Date().toISOString() } });
+    setSaving(false);
+  };
+
+  const gerarSmartEPlano = async () => {
+    if (etapas.length > 0 && !confirm("Isso vai substituir o plano atual pelas sugestões da IA. Continuar?")) return;
+    setGenerating(true);
+    try {
+      const prompt = `Você é um especialista em gestão de projetos ágeis para empresas de audiovisual.
+
+Analise esta iniciativa da ETC Filmes e retorne APENAS um JSON válido (sem markdown, sem texto extra):
+
+INICIATIVA:
+Área: ${detail.area}
+Problema: ${detail.problema}
+Impacto: ${detail.impacto}
+Tempo manual atual: ${detail.tempo_manual}
+Tipo: ${detail.tipo}
+Classificação: ${detail.classificacao}
+OKR: ${detail.okr}
+${detail.analise_canvas?.ideiaFrase ? "Resumo Canvas: "+detail.analise_canvas.ideiaFrase : ""}
+${detail.analise_canvas?.roadmap ? "Roadmap Canvas: "+detail.analise_canvas.roadmap.substring(0,600) : ""}
+
+Retorne EXATAMENTE neste formato JSON:
+{
+  "smart": {
+    "especifico": "texto claro e objetivo (2-3 frases)",
+    "mensuravel": "métricas concretas e como medir",
+    "atingivel": "justificativa de viabilidade com recursos disponíveis",
+    "relevante": "conexão direta com OKRs e prioridades da ETC",
+    "temporal": "prazo realista com data estimada de conclusão"
+  },
+  "fases": [
+    {
+      "nome": "Fase 1 — Nome da fase",
+      "tarefas": [
+        { "titulo": "título da tarefa", "responsavel": "sugestão de perfil", "prazo_dias": 7, "descricao": "contexto breve" }
+      ]
+    }
+  ]
+}
+
+Use no máximo 3 fases. Cada fase com 2 a 5 tarefas. Prazos em dias a partir de hoje. Seja específico e acionável.`;
+
+      const r = await fetch("https://etc-filmes-proxy.vercel.app/api/anthropic", {
+        method:"POST",
+        headers:{"content-type":"application/json"},
+        body: JSON.stringify({ model:"claude-sonnet-4-5", max_tokens:3000, messages:[{role:"user",content:prompt}] }),
+      });
+      const data = await r.json().catch(()=>({}));
+      if (!r.ok || data.error) throw new Error(data.error?.message || "Erro da API: "+r.status);
+      const texto = data?.content?.[0]?.text || "";
+      const clean = texto.replace(/```json|```/g,"").trim();
+      const parsed = JSON.parse(clean);
+
+      setSmartDraft({ ...parsed.smart, gerado_em: new Date().toISOString() });
+
+      const hoje = new Date();
+      const etapasGeradas = [];
+      parsed.fases.forEach(fase => {
+        fase.tarefas.forEach(t => {
+          const d = new Date(hoje);
+          d.setDate(d.getDate() + (t.prazo_dias || 7));
+          etapasGeradas.push({
+            id: Date.now().toString()+Math.random(),
+            titulo: t.titulo, responsavel: t.responsavel||"",
+            prazo: d.toISOString().split("T")[0],
+            fase: fase.nome, status:"A fazer", origem:"smart-ia",
+          });
+        });
+      });
+      setPlanDraft(etapasGeradas);
+
+    } catch(e) { alert("Erro ao gerar análise:\n\n"+e.message); }
+    finally { setGenerating(false); }
+  };
+
+  const confirmarRascunho = async () => {
+    setSaving(true);
+    await patch(detail.id, { analise_smart: smartDraft, planejamento: planDraft });
+    setSmartDraft(null); setPlanDraft(null);
     setSaving(false);
   };
 
   const addEtapa = async () => {
     if (!form.titulo.trim()) return;
     const nova = { ...form, id: Date.now().toString() };
-    await save([...etapas, nova]);
+    await savePlan([...etapas, nova]);
     setForm(EMPTY_ETAPA); setAdding(false);
   };
 
   const updateEtapa = async (id, fields) => {
-    await save(etapas.map(e => e.id===id ? {...e,...fields} : e));
+    await savePlan(etapas.map(e => e.id===id ? {...e,...fields} : e));
     setEditingId(null);
   };
 
   const removeEtapa = async (id) => {
     if (!confirm("Remover esta etapa?")) return;
-    await save(etapas.filter(e => e.id!==id));
+    await savePlan(etapas.filter(e => e.id!==id));
   };
 
   const importFromCanvas = async () => {
     const roadmap = detail.analise_canvas?.roadmap || "";
-    if (!roadmap) { alert("Gere o Canvas IA primeiro para importar o roadmap."); return; }
+    if (!roadmap) { alert("Gere o Canvas IA primeiro."); return; }
     const linhas = roadmap.split("\n").filter(l => l.match(/^\s*-?\s*\[?\s*\]?\s*.+/));
     const faseAtual = { nome:"Fase 1" };
     const novas = [];
     linhas.forEach(l => {
-      const faseMatch = l.match(/FASE\s*(\d+)[:\s]*(.+)?/i);
-      if (faseMatch) { faseAtual.nome = "Fase "+faseMatch[1]; return; }
-      const titulo = l.replace(/^\s*-?\s*\[?\s*[xX ]?\s*\]?\s*/, "").trim();
+      const fm = l.match(/FASE\s*(\d+)[:\s]*(.+)?/i);
+      if (fm) { faseAtual.nome = "Fase "+fm[1]; return; }
+      const titulo = l.replace(/^\s*-?\s*\[?\s*[xX ]?\s*\]?\s*/,"").trim();
       if (titulo.length < 3) return;
-      novas.push({ id: Date.now().toString()+Math.random(), titulo, responsavel:"", prazo:"", fase:faseAtual.nome, status:"A fazer", origem:"canvas" });
+      novas.push({ id:Date.now().toString()+Math.random(), titulo, responsavel:"", prazo:"", fase:faseAtual.nome, status:"A fazer", origem:"canvas" });
     });
-    if (novas.length===0) { alert("Não foi possível extrair etapas do roadmap. Verifique o Canvas."); return; }
-    const existentes = etapas.filter(e=>e.origem!=="canvas");
-    await save([...existentes, ...novas]);
+    if (!novas.length) { alert("Não foi possível extrair etapas do roadmap."); return; }
+    await savePlan([...etapas.filter(e=>e.origem!=="canvas"), ...novas]);
   };
 
   const STA_ETAPA = {
@@ -353,26 +453,25 @@ function PlanejamentoTab({ detail, patch }) {
     "Em andamento": { bg:"#FFFBEB", color:"#D97706", border:"#FDE68A" },
     "Concluído":    { bg:"#EDFCF5", color:"#065F46", border:"#A7F3D0" },
   };
-  const FASES = ["Fase 1","Fase 2","Fase 3","Outro"];
+  const FASES        = ["Fase 1","Fase 2","Fase 3","Outro"];
   const STATUS_ETAPA = ["A fazer","Em andamento","Concluído"];
-
-  const fases = [...new Set(etapas.map(e=>e.fase||"Fase 1"))].sort();
+  const fases   = [...new Set(etapas.map(e=>e.fase||"Fase 1"))].sort();
   const porFase = fases.map(f=>({ fase:f, itens:etapas.filter(e=>(e.fase||"Fase 1")===f) }));
   const concluidos = etapas.filter(e=>e.status==="Concluído").length;
 
-  const FieldInput = ({label, val, onChange, type="text", placeholder=""}) => html`
+  const FieldIn = ({label,val,onChange,type="text",placeholder=""}) => html`
     <div>
       <p style="color:#9193A0;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${label}</p>
       <input type=${type} value=${val} onChange=${onChange} placeholder=${placeholder}
         style="width:100%;padding:7px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none;box-sizing:border-box" />
     </div>`;
 
-  const EtapaForm = ({vals, setVals, onSave, onCancel, saveLabel="Adicionar"}) => html`
+  const EtapaForm = ({vals,setVals,onSave,onCancel,saveLabel="Adicionar"}) => html`
     <div style="background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px">
-      ${FieldInput({label:"Título *", val:vals.titulo, onChange:e=>setVals(p=>({...p,titulo:e.target.value})), placeholder:"Ex: Configurar ambiente de desenvolvimento"})}
+      ${FieldIn({label:"Título *",val:vals.titulo,onChange:e=>setVals(p=>({...p,titulo:e.target.value})),placeholder:"Ex: Configurar ambiente"})}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        ${FieldInput({label:"Responsável", val:vals.responsavel, onChange:e=>setVals(p=>({...p,responsavel:e.target.value})), placeholder:"Ex: Natalia"})}
-        ${FieldInput({label:"Prazo", val:vals.prazo, onChange:e=>setVals(p=>({...p,prazo:e.target.value})), type:"date"})}
+        ${FieldIn({label:"Responsável",val:vals.responsavel,onChange:e=>setVals(p=>({...p,responsavel:e.target.value})),placeholder:"Ex: Natalia"})}
+        ${FieldIn({label:"Prazo",val:vals.prazo,onChange:e=>setVals(p=>({...p,prazo:e.target.value})),type:"date"})}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div>
@@ -403,26 +502,124 @@ function PlanejamentoTab({ detail, patch }) {
     </div>`;
 
   return html`
-    <div style="display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;flex-direction:column;gap:20px">
 
-      <!-- barra de progresso + ações -->
+      <!-- BOTÃO GERAR IA -->
+      ${!smartDraft ? html`
+        <div style=${"display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px;background:"+(smart?"#F7F9FC":"#E5F6FB")+";border:1px solid "+(smart?"#E8ECF1":"#B3E4F5")+";border-radius:12px"}>
+          <div>
+            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0 0 2px">
+              ${smart ? "Análise SMART + Plano gerado pela IA" : "Gerar Análise SMART + Plano de Desenvolvimento"}
+            </p>
+            <p style="font-size:11px;color:#9193A0;margin:0">
+              ${smart ? "Gerado em "+new Date(smart.gerado_em).toLocaleDateString("pt-BR")+" — clique para regenerar" : "A IA estrutura os critérios SMART e monta um plano com fases e tarefas editáveis"}
+            </p>
+          </div>
+          <button onClick=${gerarSmartEPlano} disabled=${generating}
+            style=${"display:flex;align-items:center;gap:6px;padding:9px 18px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;border:none;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(generating?"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed":"background:#009FCF;color:#fff;box-shadow:0 4px 12px rgba(0,159,207,0.25)")}>
+            ${generating ? html`
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+              Gerando… (30–60s)` : html`
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              ${smart ? "Regenerar SMART + Plano" : "Gerar SMART + Plano"}`}
+          </button>
+        </div>` : null}
+
+      <!-- RASCUNHO IA -->
+      ${smartDraft ? html`
+        <div style="display:flex;flex-direction:column;gap:12px;padding:16px;background:#F7F9FC;border:2px solid #009FCF;border-radius:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:13px;color:#009FCF;margin:0">✨ Sugestão da IA — revise e confirme</p>
+            <div style="display:flex;gap:8px">
+              <button onClick=${()=>{ setSmartDraft(null); setPlanDraft(null); }}
+                style="padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:#9193A0;border:1px solid #E8ECF1;font-family:'Plus Jakarta Sans',sans-serif">
+                Descartar
+              </button>
+              <button onClick=${confirmarRascunho} disabled=${saving}
+                style="padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;background:#00BE8C;color:#fff;border:none;font-family:'Plus Jakarta Sans',sans-serif">
+                ${saving?"Salvando…":"✓ Confirmar e salvar"}
+              </button>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${SMART_KEYS.map(({key,label,hint})=>html`
+              <div key=${key} style="background:#fff;border:1px solid #E8ECF1;border-radius:10px;padding:10px 12px">
+                <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:11px;color:#009FCF;margin:0 0 2px">${label}</p>
+                <p style="color:#9193A0;font-size:10px;margin:0 0 6px;font-style:italic">${hint}</p>
+                <textarea value=${smartDraft[key]}
+                  onChange=${e=>setSmartDraft(p=>({...p,[key]:e.target.value}))}
+                  rows="2"
+                  style="width:100%;padding:7px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif;line-height:1.5">
+                </textarea>
+              </div>`)}
+          </div>
+
+          ${planDraft && planDraft.length ? html`
+            <div>
+              <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:12px;color:#1C1C1C;margin:0 0 8px">Plano sugerido — ${planDraft.length} etapas</p>
+              <div style="display:flex;flex-direction:column;gap:4px">
+                ${planDraft.map((e,idx)=>html`
+                  <div key=${e.id} style="display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #E8ECF1;border-radius:8px;padding:8px 10px">
+                    <span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;color:#009FCF;background:#E5F6FB;padding:2px 6px;border-radius:6px;flex-shrink:0">${e.fase}</span>
+                    <span style="flex:1;font-size:12px;color:#1C1C1C">${e.titulo}</span>
+                    ${e.responsavel ? html`<span style="font-size:11px;color:#9193A0">👤 ${e.responsavel}</span>` : null}
+                    ${e.prazo ? html`<span style="font-size:11px;color:#9193A0">📅 ${new Date(e.prazo+"T00:00:00").toLocaleDateString("pt-BR")}</span>` : null}
+                    <button onClick=${()=>setPlanDraft(p=>p.filter((_,i)=>i!==idx))}
+                      style="background:none;border:none;cursor:pointer;color:#C0C4CC;padding:2px;flex-shrink:0"
+                      onMouseEnter=${ev=>ev.currentTarget.style.color="#F73A60"}
+                      onMouseLeave=${ev=>ev.currentTarget.style.color="#C0C4CC"}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>
+                    </button>
+                  </div>`)}
+              </div>
+            </div>` : null}
+        </div>` : null}
+
+      <!-- SMART SALVO -->
+      ${smart && !smartDraft ? html`
+        <div style="background:#F7F9FC;border:1px solid #E8ECF1;border-radius:12px;padding:14px 16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:12px;color:#1C1C1C;margin:0">Análise SMART</p>
+            <button onClick=${()=>setEditSmart(!editSmart)}
+              style=${"display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;background:"+(editSmart?"#E5F6FB":"#fff")+";color:"+(editSmart?"#009FCF":"#9193A0")+";border:1px solid "+(editSmart?"#009FCF":"#E8ECF1")}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              ${editSmart?"Concluir":"Editar"}
+            </button>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${SMART_KEYS.map(({key,label})=>html`
+              <div key=${key} style=${"display:grid;grid-template-columns:140px 1fr;gap:8px;align-items:"+(editSmart?"start":"center")}>
+                <span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;color:#009FCF">${label}</span>
+                ${editSmart ? html`
+                  <textarea value=${smart[key]}
+                    onChange=${async e=>{ const u={...smart,[key]:e.target.value}; await saveSmart(u); }}
+                    rows="2"
+                    style="padding:6px 8px;background:#fff;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif;line-height:1.5;width:100%">
+                  </textarea>` : html`
+                  <p style="font-size:12px;color:#4A4A4A;margin:0;line-height:1.55">${smart[key]}</p>`}
+              </div>`)}
+          </div>
+        </div>` : null}
+
+      <!-- PROGRESSO + AÇÕES -->
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:160px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
             <span style="font-size:12px;color:#9193A0">${concluidos} de ${etapas.length} etapas concluídas</span>
-            ${etapas.length>0 ? html`<span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;color:#009FCF">${Math.round(concluidos/etapas.length*100)}%</span>` : null}
+            ${etapas.length ? html`<span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;color:#009FCF">${Math.round(concluidos/etapas.length*100)}%</span>` : null}
           </div>
-          ${etapas.length>0 ? html`
+          ${etapas.length ? html`
             <div style="height:6px;background:#F1F5F9;border-radius:999px;overflow:hidden">
               <div style=${"height:100%;background:#009FCF;border-radius:999px;width:"+Math.round(concluidos/etapas.length*100)+"%"}></div>
             </div>` : null}
         </div>
         <div style="display:flex;gap:8px">
-          ${detail.analise_canvas ? html`
+          ${detail.analise_canvas && !smartDraft ? html`
             <button onClick=${importFromCanvas}
               style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;background:#E5F6FB;color:#009FCF;border:1px solid #B3E4F5;font-family:'Plus Jakarta Sans',sans-serif">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-              Importar do Canvas
+              Importar Canvas
             </button>` : null}
           <button onClick=${()=>{ setForm(EMPTY_ETAPA); setAdding(true); setEditingId(null); }}
             style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;background:#009FCF;color:#fff;border:none;font-family:'Plus Jakarta Sans',sans-serif">
@@ -432,14 +629,12 @@ function PlanejamentoTab({ detail, patch }) {
         </div>
       </div>
 
-      <!-- form nova etapa -->
-      ${adding ? html`${EtapaForm({vals:form, setVals:setForm, onSave:addEtapa, onCancel:()=>setAdding(false), saveLabel:"Adicionar"})}` : null}
+      ${adding ? html`${EtapaForm({vals:form,setVals:setForm,onSave:addEtapa,onCancel:()=>setAdding(false),saveLabel:"Adicionar"})}` : null}
 
-      <!-- lista por fase -->
       ${etapas.length===0 && !adding ? html`
-        <div style="text-align:center;padding:40px 0;color:#9193A0">
+        <div style="text-align:center;padding:32px 0;color:#9193A0">
           <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:14px;color:#4A4A4A;margin-bottom:6px">Nenhuma etapa ainda</p>
-          <p style="font-size:12px">Clique em "Nova etapa" ou importe o roadmap do Canvas IA.</p>
+          <p style="font-size:12px">Use "Gerar SMART + Plano" para a IA estruturar o projeto, ou adicione manualmente.</p>
         </div>` : null}
 
       ${porFase.map(({fase,itens})=>html`
@@ -453,14 +648,13 @@ function PlanejamentoTab({ detail, patch }) {
             ${itens.map(e=>{
               const st = STA_ETAPA[e.status]||STA_ETAPA["A fazer"];
               const isEditing = editingId===e.id;
-              const [editForm, setEditForm] = useState(e);
+              const [ef,setEf] = useState({...e});
               return html`
                 <div key=${e.id} style=${"background:#fff;border:1px solid "+(e.status==="Concluído"?"#A7F3D0":"#E8ECF1")+";border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px"}>
                   ${isEditing ? html`
-                    ${EtapaForm({vals:editForm, setVals:setEditForm, onSave:()=>updateEtapa(e.id,editForm), onCancel:()=>setEditingId(null), saveLabel:"Salvar"})}
+                    ${EtapaForm({vals:ef,setVals:setEf,onSave:()=>updateEtapa(e.id,ef),onCancel:()=>setEditingId(null),saveLabel:"Salvar"})}
                   ` : html`
                     <div style="display:flex;align-items:flex-start;gap:8px">
-                      <!-- checkbox status rápido -->
                       <button onClick=${()=>updateEtapa(e.id,{status:e.status==="Concluído"?"A fazer":"Concluído"})}
                         style=${"width:16px;height:16px;border-radius:4px;border:2px solid;cursor:pointer;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;background:"+(e.status==="Concluído"?"#00BE8C":"#fff")+";border-color:"+(e.status==="Concluído"?"#00BE8C":"#CBD5E1")}>
                         ${e.status==="Concluído" ? html`<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>` : null}
@@ -471,16 +665,15 @@ function PlanejamentoTab({ detail, patch }) {
                           ${e.responsavel ? html`<span style="font-size:11px;color:#9193A0">👤 ${e.responsavel}</span>` : null}
                           ${e.prazo ? html`<span style="font-size:11px;color:#9193A0">📅 ${new Date(e.prazo+"T00:00:00").toLocaleDateString("pt-BR")}</span>` : null}
                           ${e.origem==="canvas" ? html`<span style="background:#E5F6FB;color:#009FCF;border:1px solid #B3E4F5;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;font-family:'Plus Jakarta Sans',sans-serif">Canvas</span>` : null}
+                          ${e.origem==="smart-ia" ? html`<span style="background:#F5F0FF;color:#6D28D9;border:1px solid #DDD6FE;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;font-family:'Plus Jakarta Sans',sans-serif">✨ IA</span>` : null}
                         </div>
                       </div>
-                      <!-- status pill clicável -->
                       <select value=${e.status} onChange=${ev=>updateEtapa(e.id,{status:ev.target.value})}
                         style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;padding:2px 20px 2px 8px;border-radius:999px;border:1px solid;cursor:pointer;outline:none;background:"+st.bg+";color:"+st.color+";border-color:"+st.border}>
                         ${STATUS_ETAPA.map(s=>html`<option key=${s} value=${s}>${s}</option>`)}
                       </select>
-                      <!-- ações -->
                       <div style="display:flex;gap:2px;flex-shrink:0">
-                        <button onClick=${()=>{ setEditForm({...e}); setEditingId(e.id); setAdding(false); }}
+                        <button onClick=${()=>{ setEf({...e}); setEditingId(e.id); setAdding(false); }}
                           style="background:none;border:none;cursor:pointer;color:#C0C4CC;padding:2px"
                           onMouseEnter=${ev=>ev.currentTarget.style.color="#009FCF"}
                           onMouseLeave=${ev=>ev.currentTarget.style.color="#C0C4CC"}>
