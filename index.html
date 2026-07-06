@@ -706,16 +706,12 @@ function App() {
   const [cModal,      setCModal]      = useState(false);
   const [newC,        setNewC]        = useState({nome:"",descricao:"",cor:CLR_CLUST[0],prioridade:"Media"});
   const [editingClusterPri,  setEditingClusterPri]  = useState(null);
-  const [editingClusterName, setEditingClusterName] = useState(null); // {id, nome, descricao}
+  const [editingClusterName, setEditingClusterName] = useState(null);
   const [niModal,     setNiModal]     = useState(false);
   const [niSaving,    setNiSaving]    = useState(false);
   const EMPTY_NI = {nome_colaborador:"",area:AREAS[0],problema:"",impacto:"",tempo_manual:"",apoio_ai_lead:"Talvez",tipo:"",classificacao:"Projeto",okr:"OKR 2 Margem",complexidade:3,prioridade:"Alta",status:"Backlog",notas:""};
   const [newNi,       setNewNi]       = useState(EMPTY_NI);
   const [saving,      setSaving]      = useState(null);
-  const [analisando,  setAnalisando]  = useState(null);
-  const [copiado,     setCopiado]     = useState(false);
-  const [expanded,    setExpanded]    = useState(null);
-  const [seeding,     setSeeding]     = useState(false);
 
   useEffect(()=>{ init(); },[]);
 
@@ -728,10 +724,9 @@ function App() {
       ]);
       setClusters(cls||[]);
       if (!ini || ini.length===0) {
-        setSeeding(true);
         await supa("iniciativas",{method:"POST",body:SEED,prefer:"return=minimal"});
         const seeded = await supa("iniciativas?select=*&order=num.asc");
-        setIniciativas(seeded||[]); setSeeding(false);
+        setIniciativas(seeded||[]);
       } else { setIniciativas(ini); }
     } catch(e) { setError(e.message); }
     finally { setLoading(false); }
@@ -742,53 +737,39 @@ function App() {
     try {
       await supa("iniciativas?id=eq."+id, {method:"PATCH",body:fields});
       setIniciativas(p=>p.map(i=>i.id===id?{...i,...fields}:i));
-      
     } catch(e) { alert("Erro: "+e.message); }
     finally { setSaving(null); }
   };
 
-  const generateAnalysis = async (ini) => {
-    setAnalisando(ini.id); setDetailTab("canvas");
+  const createIniciativa = async () => {
+    if (!newNi.problema.trim() || !newNi.nome_colaborador.trim()) return;
+    setNiSaving(true);
     try {
-      const content = ANALYSIS_PROMPT +
-        "\n\nAREA DO COLABORADOR: "+ini.area+
-        "\n\nIDEIA SUBMETIDA:\nProblema: "+ini.problema+
-        "\nImpacto esperado: "+ini.impacto+
-        "\nTempo manual atual: "+ini.tempo_manual+
-        "\nPrecisa de apoio do AI Lead: "+ini.apoio_ai_lead+
-        "\nClassificacao interna: "+ini.classificacao+
-        "\nTipo de iniciativa: "+ini.tipo;
-      const r = await fetch(ANALYZE_ENDPOINT, {
-        method:"POST", headers:{"content-type":"application/json"},
-        body: JSON.stringify({model:"claude-sonnet-4-5",max_tokens:4000,messages:[{role:"user",content}]}),
-      });
-      const data = await r.json().catch(()=>({}));
-      if (!r.ok || data.error) throw new Error(data.error?.message||data.error||"Erro da API: "+r.status);
-      const texto = data?.content?.[0]?.text;
-      if (!texto) throw new Error("Resposta vazia da API.");
-      const parsed = parseAnalise(texto);
-      const geradaEm = new Date().toISOString();
-      await supa("iniciativas?id=eq."+ini.id,{method:"PATCH",body:{analise_canvas:parsed,analise_gerada_em:geradaEm}});
-      setIniciativas(p=>p.map(i=>i.id===ini.id?{...i,analise_canvas:parsed,analise_gerada_em:geradaEm}:i));
-      
-    } catch(e) { alert("Erro ao gerar analise:\n\n"+e.message); }
-    finally { setAnalisando(null); }
+      const nextNum = iniciativas.length > 0 ? Math.max(...iniciativas.map(i=>i.num||0)) + 1 : 1;
+      const [created] = await supa("iniciativas",{method:"POST",body:{...newNi,num:nextNum},prefer:"return=representation"});
+      setIniciativas(p=>[...p,created]);
+      setNiModal(false); setNewNi(EMPTY_NI);
+    } catch(e) { alert("Erro ao criar iniciativa: "+e.message); }
+    finally { setNiSaving(false); }
   };
 
-  const copiarResumo = () => {
-    const txt = detail?.analise_canvas?.resumoForms; if (!txt) return;
-    try {
-      const el = document.createElement("textarea");
-      el.value=txt; el.style.cssText="position:fixed;top:-9999px;left:-9999px";
-      document.body.appendChild(el); el.focus(); el.select();
-      document.execCommand("copy"); document.body.removeChild(el);
-      setCopiado(true); setTimeout(()=>setCopiado(false),2500);
-    } catch { alert("Selecione o texto manualmente e use Ctrl+C."); }
+  const exportCSV = () => {
+    const hdr = ["#","Nome","Area","Classificacao","Tipo","OKR","Complexidade","Prioridade","Status","Tempo Manual","Apoio AI Lead","Cluster","SMART","Plano","Problema"];
+    const rows = iniciativas.map(i=>{
+      const cl = clusters.find(c=>c.id===i.cluster_id);
+      return [i.num,i.nome_colaborador,i.area,i.classificacao,i.tipo,i.okr,i.complexidade,i.prioridade,i.status,i.tempo_manual,i.apoio_ai_lead,cl?.nome||"",i.analise_smart?"Sim":"Nao",i.planejamento?.length||0,'"'+(i.problema||"").replace(/"/g,'""')+'"'].join(",");
+    });
+    const csv = [hdr.join(","),...rows].join("\n");
+    const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href=url; a.download="iniciativas-ia-etcfilmes.csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
   };
 
   const patchCluster = async (cid, fields) => {
     try {
-      await supa("clusters?id=eq."+cid, {method:"PATCH", body:fields});
+      await supa("clusters?id=eq."+cid, {method:"PATCH",body:fields});
       setClusters(p=>p.map(c=>c.id===cid?{...c,...fields}:c));
     } catch(e) { alert("Erro ao atualizar cluster: "+e.message); }
   };
@@ -802,7 +783,7 @@ function App() {
   };
 
   const deleteCluster = async (cid) => {
-    if (!confirm("Remover cluster? As iniciativas nao serao excluidas.")) return;
+    if (!confirm("Remover cluster? As iniciativas não serão excluídas.")) return;
     try {
       await supa("iniciativas?cluster_id=eq."+cid,{method:"PATCH",body:{cluster_id:null}});
       await supa("clusters?id=eq."+cid,{method:"DELETE"});
@@ -811,37 +792,9 @@ function App() {
     } catch(e) { alert("Erro: "+e.message); }
   };
 
-  const createIniciativa = async () => {
-    if (!newNi.problema.trim() || !newNi.nome_colaborador.trim()) return;
-    setNiSaving(true);
-    try {
-      const nextNum = iniciativas.length > 0 ? Math.max(...iniciativas.map(i=>i.num||0)) + 1 : 1;
-      const payload = { ...newNi, num: nextNum };
-      const [created] = await supa("iniciativas", {method:"POST", body:payload, prefer:"return=representation"});
-      setIniciativas(p=>[...p, created]);
-      setNiModal(false);
-      setNewNi(EMPTY_NI);
-    } catch(e) { alert("Erro ao criar iniciativa: "+e.message); }
-    finally { setNiSaving(false); }
-  };
-
-  const exportCSV = () => {
-    const hdr = ["#","Nome","Area","Classificacao","Tipo","OKR","Complexidade","Prioridade","Status","Tempo Manual","Apoio AI Lead","Cluster","Canvas Gerado","Problema"];
-    const rows = iniciativas.map(i=>{
-      const cl = clusters.find(c=>c.id===i.cluster_id);
-      return [i.num,i.nome_colaborador,i.area,i.classificacao,i.tipo,i.okr,i.complexidade,i.prioridade,i.status,i.tempo_manual,i.apoio_ai_lead,cl?.nome||"",i.analise_gerada_em?"Sim":"Nao",'"'+(i.problema||"").replace(/"/g,'""')+'"'].join(",");
-    });
-    const csv = [hdr.join(","),...rows].join("\n");
-    const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href=url; a.download="iniciativas-ia-etcfilmes.csv";
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(url),3000);
-  };
-
   const getCluster = (id) => clusters.find(c=>c.id===id);
-  /* detail é sempre derivado do array — garante re-render automático após patch */
-  const detail = detailId ? iniciativas.find(i=>i.id===detailId) || null : null;
+  const detail = detailId ? iniciativas.find(i=>i.id===detailId)||null : null;
+
   const filtered = useMemo(()=>iniciativas.filter(i=>{
     if (filters.area          && i.area!==filters.area)                      return false;
     if (filters.okr           && i.okr!==filters.okr)                        return false;
@@ -859,7 +812,7 @@ function App() {
     ideias:    iniciativas.filter(i=>i.classificacao==="Ideia").length,
     okr1:      iniciativas.filter(i=>i.okr==="OKR 1 Receita").length,
     okr2:      iniciativas.filter(i=>i.okr==="OKR 2 Margem").length,
-    comCanvas: iniciativas.filter(i=>i.analise_canvas).length,
+    comSmart:  iniciativas.filter(i=>i.analise_smart).length,
     alta:      iniciativas.filter(i=>i.prioridade==="Alta").length,
   }),[iniciativas]);
 
@@ -872,17 +825,19 @@ function App() {
 
   /* ── CARD ── */
   const Card = (ini) => {
-    const cl  = getCluster(ini.cluster_id);
-    const cs  = CLF[ini.classificacao]  || CLF.Projeto;
-    const os  = OKR[ini.okr]            || OKR.Transversal;
-    const ss  = STA[ini.status]         || STA.Backlog;
+    const cl = getCluster(ini.cluster_id);
+    const cs = CLF[ini.classificacao]  || CLF.Projeto;
+    const os = OKR[ini.okr]            || OKR.Transversal;
+    const ss = STA[ini.status]         || STA.Backlog;
+    const etapas    = ini.planejamento || [];
+    const concluidas = etapas.filter(e=>e.status==="Concluído").length;
     return html`
       <div class="card" style=${cl ? "border-left:3px solid "+cl.cor : ""}
-        onClick=${()=>{ setDetailId(ini.id); setDetailTab("iniciativa"); setExpanded(null); }}>
+        onClick=${()=>{ setDetailId(ini.id); setDetailTab("iniciativa"); }}>
         <div class="flex items-start justify-between gap-2">
           <div class="flex items-center gap-1.5">
             <span class="text-xs font-mono font-bold" style="color:#9193A0">#${String(ini.num).padStart(2,"0")}</span>
-            ${ini.analise_canvas ? html`<span class="pill" style="background:#E5F6FB;color:#009FCF;border-color:#B3E4F5;font-size:9px">⚡ Canvas</span>` : null}
+            ${ini.analise_smart ? html`<span class="pill" style="background:#F5F0FF;color:#6D28D9;border-color:#DDD6FE;font-size:9px">✨ SMART</span>` : null}
           </div>
           <div class="flex flex-wrap gap-1 justify-end">
             ${Pill({text:ini.classificacao, s:cs})}
@@ -897,6 +852,13 @@ function App() {
           </div>
           ${Pill({text:ini.status, s:ss})}
         </div>
+        ${etapas.length > 0 ? html`
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="flex:1;height:4px;background:#F1F5F9;border-radius:999px;overflow:hidden">
+              <div style=${"height:100%;background:#009FCF;border-radius:999px;width:"+Math.round(concluidas/etapas.length*100)+"%"}></div>
+            </div>
+            <span style="font-size:10px;color:#9193A0;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600">${concluidas}/${etapas.length}</span>
+          </div>` : null}
         ${cl ? html`
           <div class="flex items-center gap-1.5">
             <span class="rounded-full" style=${"width:7px;height:7px;background:"+cl.cor+";display:inline-block;flex-shrink:0"}></span>
@@ -906,29 +868,24 @@ function App() {
       </div>`;
   };
 
-  /* ── CHOICE BUTTONS ── */
-  const ChoiceRow = ({opts, val, styleMap, onPick}) => html`
+  const ChoiceRow = ({opts,val,styleMap,onPick}) => html`
     <div class="flex flex-wrap gap-2">
-      ${opts.map(o => {
-        const s   = styleMap ? styleMap[o] : null;
-        const act = val===o;
+      ${opts.map(o=>{
+        const s=styleMap?styleMap[o]:null; const act=val===o;
         return html`
           <button key=${o} class="choice-btn"
-            style=${act && s ? "background:"+s.bg+";color:"+s.color+";border-color:"+s.border : act ? "background:#E5F6FB;color:#009FCF;border-color:#009FCF" : ""}
-            onClick=${()=>onPick(o)}>
-            ${o}
-          </button>`;
+            style=${act&&s?"background:"+s.bg+";color:"+s.color+";border-color:"+s.border:act?"background:#E5F6FB;color:#009FCF;border-color:#009FCF":""}
+            onClick=${()=>onPick(o)}>${o}</button>`;
       })}
     </div>`;
 
-  /* ── SECTION LABEL ── */
   const SL = (txt) => html`<p class="section-label">${txt}</p>`;
 
   /* ── LOADING / ERROR ── */
   if (loading) return html`
     <div class="min-h-screen flex flex-col items-center justify-center gap-4" style="background:#F7F9FC">
       ${IconLoader(32)}
-      <p style="color:#9193A0;font-size:13px">${seeding ? "Inserindo 21 iniciativas..." : "Conectando ao Supabase..."}</p>
+      <p style="color:#9193A0;font-size:13px">Conectando ao Supabase…</p>
     </div>`;
 
   if (error) return html`
@@ -936,13 +893,9 @@ function App() {
       <span style="color:#F73A60">${IconAlert(32)}</span>
       <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;color:#1C1C1C;font-size:16px">Erro ao conectar ao Supabase</p>
       <p style="color:#9193A0;font-size:13px;text-align:center;max-width:400px">${error}</p>
-      <button onClick=${init}
-        style="padding:8px 20px;background:#009FCF;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;font-family:'Plus Jakarta Sans',sans-serif">
-        Tentar novamente
-      </button>
+      <button onClick=${init} style="padding:8px 20px;background:#009FCF;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;font-family:'Plus Jakarta Sans',sans-serif">Tentar novamente</button>
     </div>`;
 
-  /* ── MAIN ── */
   return html`
     <div class="min-h-screen flex flex-col" style="background:#F7F9FC">
 
@@ -951,72 +904,46 @@ function App() {
         <div>
           <div class="flex items-center mb-1">
             ${Dots()}
-            <span style="color:#009FCF;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-family:'Plus Jakarta Sans',sans-serif">
-              ETC Filmes · Iniciativas de IA
-            </span>
+            <span style="color:#009FCF;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-family:'Plus Jakarta Sans',sans-serif">ETC Filmes · Iniciativas de IA</span>
           </div>
-          <h1 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:22px;color:#1C1C1C;margin:0 0 2px">
-            Painel de Iniciativas de IA
-          </h1>
-          <p style="color:#9193A0;font-size:12px;margin:0">
-            ${iniciativas.length} iniciativas · ${clusters.length} clusters · ${stats.comCanvas} com Canvas ⚡
-          </p>
+          <h1 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:22px;color:#1C1C1C;margin:0 0 2px">Painel de Iniciativas de IA</h1>
+          <p style="color:#9193A0;font-size:12px;margin:0">${iniciativas.length} iniciativas · ${clusters.length} clusters · ${stats.comSmart} com SMART ✨</p>
         </div>
         <div class="flex flex-wrap gap-2 items-center">
-          <button class="btn-nav btn-nav-default" onClick=${()=>{ setNewNi(EMPTY_NI); setNiModal(true); }}
-            style="background:#009FCF;color:#fff;border-color:#009FCF">
+          <button class="btn-nav btn-nav-default" onClick=${()=>{ setNewNi(EMPTY_NI); setNiModal(true); }} style="background:#009FCF;color:#fff;border-color:#009FCF">
             ${IconPlus(12)} Nova Iniciativa
           </button>
-          <button class=${"btn-nav "+(view==="lista"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("lista")}>
-            ${IconList(12)} Lista
-          </button>
-          <button class=${"btn-nav "+(view==="clusters"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("clusters")}>
-            ${IconLayers(12)} Clusters
-          </button>
-          <button class="btn-nav btn-nav-default" onClick=${()=>setCModal(true)}>
-            ${IconPlus(12)} Cluster
-          </button>
-          <button class="btn-nav btn-nav-default" onClick=${exportCSV}>
-            ${IconDL(12)} CSV
-          </button>
+          <button class=${"btn-nav "+(view==="lista"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("lista")}>${IconList(12)} Lista</button>
+          <button class=${"btn-nav "+(view==="clusters"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("clusters")}>${IconLayers(12)} Clusters</button>
+          <button class="btn-nav btn-nav-default" onClick=${()=>setCModal(true)}>${IconPlus(12)} Cluster</button>
+          <button class="btn-nav btn-nav-default" onClick=${exportCSV}>${IconDL(12)} CSV</button>
         </div>
       </div>
 
       <!-- STATS -->
       <div class="flex flex-wrap gap-2 px-6 py-3 items-center" style="background:#fff;border-bottom:1px solid #E8ECF1">
-        ${SC({n:stats.projetos,  label:"Projetos",       color:"#C2410C", bg:"#FFF4ED"})}
-        ${SC({n:stats.tarefas,   label:"Tarefas",        color:"#0369A1", bg:"#EFF8FF"})}
-        ${SC({n:stats.ideias,    label:"Ideias",         color:"#6D28D9", bg:"#F5F0FF"})}
+        ${SC({n:stats.projetos, label:"Projetos",       color:"#C2410C", bg:"#FFF4ED"})}
+        ${SC({n:stats.tarefas,  label:"Tarefas",        color:"#0369A1", bg:"#EFF8FF"})}
+        ${SC({n:stats.ideias,   label:"Ideias",         color:"#6D28D9", bg:"#F5F0FF"})}
         <div style="width:1px;background:#E8ECF1;align-self:stretch;margin:0 4px"></div>
-        ${SC({n:stats.okr1,      label:"OKR 1 Receita",  color:"#065F46", bg:"#EDFCF5"})}
-        ${SC({n:stats.okr2,      label:"OKR 2 Margem",   color:"#5B21B6", bg:"#F5F0FF"})}
+        ${SC({n:stats.okr1,     label:"OKR 1 Receita",  color:"#065F46", bg:"#EDFCF5"})}
+        ${SC({n:stats.okr2,     label:"OKR 2 Margem",   color:"#5B21B6", bg:"#F5F0FF"})}
         <div style="width:1px;background:#E8ECF1;align-self:stretch;margin:0 4px"></div>
-        ${SC({n:stats.alta,      label:"Alta Prioridade", color:"#F73A60", bg:"#FEE8ED"})}
-        ${SC({n:stats.comCanvas, label:"Canvas ⚡",       color:"#009FCF", bg:"#E5F6FB"})}
-        ${Object.values(filters).some(Boolean) ? html`
-          <span style="margin-left:auto;color:#F5BC50;font-weight:700;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif">
-            ${filtered.length} visíveis
-          </span>` : null}
+        ${SC({n:stats.alta,     label:"Alta Prioridade", color:"#F73A60", bg:"#FEE8ED"})}
+        ${SC({n:stats.comSmart, label:"SMART ✨",         color:"#6D28D9", bg:"#F5F0FF"})}
+        ${Object.values(filters).some(Boolean) ? html`<span style="margin-left:auto;color:#F5BC50;font-weight:700;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif">${filtered.length} visíveis</span>` : null}
       </div>
 
       <!-- FILTERS -->
       <div class="flex flex-wrap gap-2 px-6 py-2.5 items-center" style="background:#fff;border-bottom:1px solid #E8ECF1">
         <span style="color:#9193A0;font-size:11px;font-weight:600;letter-spacing:.06em">FILTRAR</span>
-        ${[
-          {k:"area",opts:AREAS,ph:"Área"},
-          {k:"classificacao",opts:CLASSIFS,ph:"Tipo"},
-          {k:"okr",opts:OKRS,ph:"OKR"},
-          {k:"prioridade",opts:PRIORS,ph:"Prioridade"},
-          {k:"status",opts:STATUS_OPTS,ph:"Status"},
-        ].map(({k,opts,ph}) => html`
-          <select key=${k} value=${filters[k]}
-            onChange=${e=>setFilters(p=>({...p,[k]:e.target.value}))}
+        ${[{k:"area",opts:AREAS,ph:"Área"},{k:"classificacao",opts:CLASSIFS,ph:"Tipo"},{k:"okr",opts:OKRS,ph:"OKR"},{k:"prioridade",opts:PRIORS,ph:"Prioridade"},{k:"status",opts:STATUS_OPTS,ph:"Status"}].map(({k,opts,ph})=>html`
+          <select key=${k} value=${filters[k]} onChange=${e=>setFilters(p=>({...p,[k]:e.target.value}))}
             style="background:#fff;border:1px solid #E8ECF1;color:#4A4A4A;font-size:12px;border-radius:8px;padding:6px 26px 6px 10px;outline:none;cursor:pointer">
             <option value="">${ph}</option>
             ${opts.map(o=>html`<option key=${o} value=${o}>${o}</option>`)}
           </select>`)}
-        <select value=${filters.cluster}
-          onChange=${e=>setFilters(p=>({...p,cluster:e.target.value}))}
+        <select value=${filters.cluster} onChange=${e=>setFilters(p=>({...p,cluster:e.target.value}))}
           style="background:#fff;border:1px solid #E8ECF1;color:#4A4A4A;font-size:12px;border-radius:8px;padding:6px 26px 6px 10px;outline:none;cursor:pointer">
           <option value="">Cluster</option>
           <option value="__none__">Sem cluster</option>
@@ -1024,8 +951,7 @@ function App() {
         </select>
         ${Object.values(filters).some(Boolean) ? html`
           <button onClick=${()=>setFilters({area:"",okr:"",classificacao:"",status:"",prioridade:"",cluster:""})}
-            class="flex items-center gap-1"
-            style="font-size:12px;color:#F73A60;font-weight:600;cursor:pointer;border:none;background:transparent;padding:4px 8px;border-radius:6px">
+            class="flex items-center gap-1" style="font-size:12px;color:#F73A60;font-weight:600;cursor:pointer;border:none;background:transparent;padding:4px 8px;border-radius:6px">
             ${IconX(10)} Limpar
           </button>` : null}
       </div>
@@ -1042,9 +968,9 @@ function App() {
               </div>` : null}
           </div>` : html`
           <div class="flex flex-col gap-10">
-            ${clusters.map(cl => {
+            ${clusters.map(cl=>{
               const items = filtered.filter(i=>i.cluster_id===cl.id);
-              if (items.length===0) return null;
+              if (!items.length) return null;
               return html`
                 <div key=${cl.id}>
                   <div class="flex items-center gap-3 mb-4">
@@ -1053,15 +979,11 @@ function App() {
                     ${cl.descricao ? html`<span style="color:#9193A0;font-size:12px">${cl.descricao}</span>` : null}
                     ${cl.prioridade ? html`
                       <span style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;"
-                        +(cl.prioridade==="Alta"?"background:#FEE8ED;color:#F73A60;border-color:#FECDD3"
-                        :cl.prioridade==="Baixa"?"background:#F1F5F9;color:#475569;border-color:#CBD5E1"
-                        :"background:#FFFBEB;color:#D97706;border-color:#FDE68A")}>
+                        +(cl.prioridade==="Alta"?"background:#FEE8ED;color:#F73A60;border-color:#FECDD3":cl.prioridade==="Baixa"?"background:#F1F5F9;color:#475569;border-color:#CBD5E1":"background:#FFFBEB;color:#D97706;border-color:#FDE68A")}>
                         ${cl.prioridade}
                       </span>` : null}
                     <span style="color:#C0C4CC;font-size:11px">${items.length} ini.</span>
-                    <button onClick=${()=>deleteCluster(cl.id)}
-                      style="margin-left:auto;background:none;border:none;cursor:pointer;color:#C0C4CC;padding:4px"
-                      title="Remover cluster">${IconX(13)}</button>
+                    <button onClick=${()=>deleteCluster(cl.id)} style="margin-left:auto;background:none;border:none;cursor:pointer;color:#C0C4CC;padding:4px" title="Remover">${IconX(13)}</button>
                   </div>
                   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">
                     ${items.map(i=>Card(i))}
@@ -1070,7 +992,7 @@ function App() {
             })}
             ${(()=>{
               const ug = filtered.filter(i=>!i.cluster_id);
-              if (ug.length===0) return null;
+              if (!ug.length) return null;
               return html`
                 <div>
                   <div class="flex items-center gap-3 mb-4">
@@ -1091,7 +1013,6 @@ function App() {
         <div class="modal-overlay" onClick=${()=>setDetailId(null)}>
           <div class="modal-box" style="max-width:640px" onClick=${e=>e.stopPropagation()}>
 
-            <!-- modal header -->
             <div class="px-6 pt-5 pb-0" style="border-bottom:1px solid #F1F5F9">
               <div class="flex items-start justify-between mb-3">
                 <div class="flex flex-wrap gap-1.5">
@@ -1100,29 +1021,22 @@ function App() {
                   <span class="pill" style="background:#F1F5F9;color:#4A4A4A;border-color:#E8ECF1;font-size:11px">${detail.area}</span>
                   <span class="pill" style="background:#F7F9FC;color:#9193A0;border-color:#E8ECF1;font-size:11px;font-family:monospace">#${String(detail.num).padStart(2,"0")}</span>
                 </div>
-                <button onClick=${()=>setDetailId(null)}
-                  style="background:none;border:none;cursor:pointer;color:#C0C4CC;margin-left:12px;flex-shrink:0;padding:4px">
-                  ${IconX(18)}
-                </button>
+                <button onClick=${()=>setDetailId(null)} style="background:none;border:none;cursor:pointer;color:#C0C4CC;margin-left:12px;flex-shrink:0;padding:4px">${IconX(18)}</button>
               </div>
               <p style="color:#9193A0;font-size:12px;margin-bottom:14px">👤 ${detail.nome_colaborador}</p>
-              <!-- tabs -->
               <div class="flex gap-1">
-                ${[["iniciativa","Iniciativa"],["canvas","Canvas IA"],["planejamento","Planejamento"]].map(([tab,lbl])=>html`
+                ${[["iniciativa","Iniciativa"],["planejamento","Planejamento"]].map(([tab,lbl])=>html`
                   <button key=${tab} onClick=${()=>setDetailTab(tab)}
                     style=${"padding:8px 16px;border-radius:8px 8px 0 0;font-size:12px;font-weight:600;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;gap:6px;"
                       +(detailTab===tab?"color:#009FCF;border-bottom:2px solid #009FCF":"color:#9193A0;border-bottom:2px solid transparent")}>
-                    ${tab==="canvas" ? IconZap(11) : null}
                     ${lbl}
-                    ${tab==="canvas"&&detail.analise_canvas ? html`<span class="rounded-full" style="width:6px;height:6px;background:#00BE8C;display:inline-block"></span>` : null}
                     ${tab==="planejamento"&&detail.planejamento?.length ? html`<span style="background:#009FCF;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:999px">${detail.planejamento.length}</span>` : null}
+                    ${tab==="planejamento"&&detail.analise_smart ? html`<span class="rounded-full" style="width:6px;height:6px;background:#6D28D9;display:inline-block"></span>` : null}
                   </button>`)}
               </div>
             </div>
 
-            <!-- modal body -->
             <div class="overflow-y-auto flex-1 px-6 py-5">
-
               ${detailTab==="iniciativa" ? html`
                 <div class="flex flex-col gap-5">
                   <div>
@@ -1134,10 +1048,7 @@ function App() {
                       <div key=${l}>${SL(l)}<p style="color:#4A4A4A;font-size:13px">${v}</p></div>`)}
                     <div>${SL("Complexidade")}${Dot(detail.complexidade)}</div>
                   </div>
-                  ${detail.notas ? html`
-                    <div>${SL("Notas")}
-                      <p style="color:#4A4A4A;font-size:12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;padding:12px;line-height:1.6">${detail.notas}</p>
-                    </div>` : null}
+                  ${detail.notas ? html`<div>${SL("Notas")}<p style="color:#4A4A4A;font-size:12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;padding:12px;line-height:1.6">${detail.notas}</p></div>` : null}
 
                   <div>${SL("Status")}
                     ${ChoiceRow({opts:STATUS_OPTS, val:detail.status, styleMap:STA, onPick:s=>patch(detail.id,{status:s})})}
@@ -1157,134 +1068,29 @@ function App() {
                       <div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background:#F7F9FC;border:1px solid #E8ECF1">
                         <span class="rounded-full" style=${"width:8px;height:8px;background:"+getCluster(detail.cluster_id).cor+";display:inline-block;flex-shrink:0"}></span>
                         <span style="color:#1C1C1C;font-size:13px;flex:1">${getCluster(detail.cluster_id).nome}</span>
-                        <button onClick=${()=>patch(detail.id,{cluster_id:null})}
-                          style="color:#9193A0;font-size:11px;font-weight:600;cursor:pointer;border:none;background:none">remover</button>
-                      </div>
-                    ` : clusters.length===0 ? html`
-                      <p style="color:#9193A0;font-size:12px">Nenhum cluster criado ainda.</p>
-                    ` : html`
+                        <button onClick=${()=>patch(detail.id,{cluster_id:null})} style="color:#9193A0;font-size:11px;font-weight:600;cursor:pointer;border:none;background:none">remover</button>
+                      </div>` : clusters.length===0 ? html`
+                      <p style="color:#9193A0;font-size:12px">Nenhum cluster criado ainda.</p>` : html`
                       <div class="flex flex-wrap gap-2">
                         ${clusters.map(c=>html`
-                          <button key=${c.id} onClick=${()=>patch(detail.id,{cluster_id:c.id})}
-                            class="flex items-center gap-1.5 choice-btn">
-                            <span class="rounded-full" style=${"width:7px;height:7px;background:"+c.cor+";display:inline-block"}></span>
-                            ${c.nome}
-                          </button>`)}
-                      </div>
-                    `}
+                          <button key=${c.id} onClick=${()=>patch(detail.id,{cluster_id:c.id})} class="flex items-center gap-1.5 choice-btn">
+                            <span class="rounded-full" style=${"width:7px;height:7px;background:"+c.cor+";display:inline-block"}></span>${c.nome}
+                          </button>`)}`}
                   </div>
 
-                  <!-- EXCLUIR -->
                   <div style="margin-top:8px;padding-top:16px;border-top:1px solid #F1F5F9">
                     <button onClick=${async ()=>{
-                      if (!confirm("Excluir esta iniciativa permanentemente? Esta ação não pode ser desfeita.")) return;
+                      if (!confirm("Excluir esta iniciativa permanentemente?")) return;
                       try {
-                        await supa("iniciativas?id=eq."+detail.id, {method:"DELETE"});
+                        await supa("iniciativas?id=eq."+detail.id,{method:"DELETE"});
                         setIniciativas(p=>p.filter(i=>i.id!==detail.id));
                         setDetailId(null);
                       } catch(e) { alert("Erro ao excluir: "+e.message); }
-                    }}
-                      style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;background:#FEE8ED;color:#F73A60;border:1px solid #FECDD3;transition:all .15s">
+                    }} style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;background:#FEE8ED;color:#F73A60;border:1px solid #FECDD3">
                       ${IconX(12)} Excluir iniciativa
                     </button>
                   </div>
-                </div>
-
-              ` : html`
-                <div>
-                  ${analisando===detail.id ? html`
-                    <div class="flex flex-col items-center justify-center py-16 gap-4">
-                      ${IconLoader(32)}
-                      <p style="color:#9193A0;font-size:13px">Gerando análise Canvas… (30–60 segundos)</p>
-                    </div>` : detail.analise_canvas ? html`
-                    <div class="flex flex-col gap-4">
-                      <div class="flex items-center justify-between">
-                        <p style="color:#C0C4CC;font-size:11px">Gerado em ${detail.analise_gerada_em ? new Date(detail.analise_gerada_em).toLocaleString("pt-BR") : "—"}</p>
-                        <button onClick=${()=>generateAnalysis(detail)}
-                          class="flex items-center gap-1.5"
-                          style="color:#9193A0;font-size:11px;font-weight:600;cursor:pointer;border:none;background:none">
-                          ${IconRefresh(11)} Regenerar
-                        </button>
-                      </div>
-
-                      <div class="rounded-xl p-4" style="background:#F7F9FC;border:1px solid #E8ECF1">
-                        <div class="flex flex-wrap gap-2 mb-2">
-                          ${(()=>{ const s=viabStyle(detail.analise_canvas.viabilidade); return html`
-                            <span class="pill" style=${"background:"+s.bg+";color:"+s.color+";border-color:"+s.border+";font-size:11px"}>
-                              ${(detail.analise_canvas.viabilidade||"").toUpperCase()||"—"}
-                            </span>`; })()}
-                          ${detail.analise_canvas.complexidade ? html`
-                            <span class="pill" style="background:#F1F5F9;color:#475569;border-color:#CBD5E1;font-size:11px">${detail.analise_canvas.complexidade}</span>` : null}
-                        </div>
-                        <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:14px;color:#1C1C1C;line-height:1.4;margin-bottom:10px">${detail.analise_canvas.ideiaFrase}</p>
-                        <div class="flex flex-wrap gap-4" style="font-size:12px;color:#9193A0">
-                          <span>⏱ <span style="color:#4A4A4A;font-weight:500">${detail.analise_canvas.tempo||"—"}</span></span>
-                          <span>💰 <span style="color:#4A4A4A;font-weight:500">${detail.analise_canvas.custo||"—"}</span></span>
-                          <span>📈 <span style="color:#4A4A4A;font-weight:500">${detail.analise_canvas.roi||"—"}</span></span>
-                        </div>
-                        ${detail.analise_canvas.okrConexao ? html`
-                          <p style="color:#9193A0;font-size:12px;margin-top:10px;padding-top:10px;border-top:1px solid #E8ECF1">🎯 ${detail.analise_canvas.okrConexao}</p>` : null}
-                      </div>
-
-                      <div class="flex flex-col gap-1.5">
-                        ${[
-                          ["🔴 Problema",           detail.analise_canvas.problema],
-                          ["🟢 Solução",             detail.analise_canvas.solucao],
-                          ["🔵 Stack",               detail.analise_canvas.stack],
-                          ["📅 Roadmap",             detail.analise_canvas.roadmap],
-                          ["📊 Estimativas e ROI",   detail.analise_canvas.estimativas],
-                          ["⚠️ Riscos",              detail.analise_canvas.riscos],
-                          ["✅ Próximos Passos",      detail.analise_canvas.proximosPassos],
-                        ].map(([titulo,conteudo])=>html`
-                          <div key=${titulo} onClick=${()=>setExpanded(expanded===titulo?null:titulo)}
-                            style="background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;padding:12px 14px;cursor:pointer">
-                            <div class="flex items-center justify-between">
-                              <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:12px;color:#1C1C1C;margin:0">${titulo}</p>
-                              <span style="color:#9193A0;font-size:10px">${expanded===titulo?"▲":"▼"}</span>
-                            </div>
-                            ${expanded===titulo ? html`
-                              <p style="color:#4A4A4A;font-size:12px;line-height:1.65;white-space:pre-line;margin-top:8px">${conteudo||"—"}</p>` : html`
-                              <p class="lc1" style="color:#C0C4CC;font-size:11px;margin-top:4px">${(conteudo||"").substring(0,90)}…</p>`}
-                          </div>`)}
-                      </div>
-
-                      <div class="rounded-xl p-4 text-center" style=${"background:"+recBg(detail.analise_canvas.recomendacao)}>
-                        <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:14px;color:#fff;margin:0 0 4px">
-                          RECOMENDAÇÃO: ${(detail.analise_canvas.recomendacao||"").toUpperCase()||"—"}
-                        </p>
-                        <p style="color:rgba(255,255,255,0.85);font-size:12px;margin:0">${detail.analise_canvas.recomendacaoDesc}</p>
-                      </div>
-
-                      ${detail.analise_canvas.resumoForms ? html`
-                        <div class="rounded-xl p-4" style="background:#F7F9FC;border:2px dashed #E8ECF1">
-                          <div class="flex items-center justify-between mb-3">
-                            <p style="color:#9193A0;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin:0">Resumo para Forms</p>
-                            <button onClick=${copiarResumo}
-                              class="flex items-center gap-1.5"
-                              style=${"padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
-                                +(copiado?"background:#00BE8C;color:#fff;border-color:#00BE8C":"background:#fff;color:#4A4A4A;border-color:#E8ECF1")}>
-                              ${copiado ? IconCheck(11) : IconCopy(11)} ${copiado ? "Copiado!" : "Copiar"}
-                            </button>
-                          </div>
-                          <pre style="color:#4A4A4A;font-size:11px;line-height:1.7;white-space:pre-wrap;font-family:monospace;background:#fff;border:1px solid #E8ECF1;border-radius:8px;padding:12px;margin:0">${detail.analise_canvas.resumoForms}</pre>
-                        </div>` : null}
-                    </div>` : html`
-                    <div class="flex flex-col items-center justify-center py-12 gap-4">
-                      <div class="rounded-full flex items-center justify-center" style="width:48px;height:48px;background:#E5F6FB;color:#009FCF">${IconZap(22)}</div>
-                      <div class="text-center">
-                        <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:15px;color:#1C1C1C;margin-bottom:6px">Canvas IA não gerado ainda</p>
-                        <p style="color:#9193A0;font-size:12px;max-width:280px;margin:0 auto">A IA vai analisar: problema, solução, stack, roadmap, ROI, riscos e recomendação.</p>
-                      </div>
-                      <button onClick=${()=>generateAnalysis(detail)}
-                        class="flex items-center gap-2"
-                        style="padding:12px 24px;background:#009FCF;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:13px;cursor:pointer;box-shadow:0 4px 16px rgba(0,159,207,0.3);font-family:'Plus Jakarta Sans',sans-serif">
-                        ${IconZap(16)} Gerar Análise Canvas
-                      </button>
-                    </div>`}
-                </div>`}
-
-              ${detailTab==="planejamento" ? html`<${PlanejamentoTab} detail=${detail} patch=${patch} />` : null}
-
+                </div>` : html`<${PlanejamentoTab} detail=${detail} patch=${patch} />`}
             </div>
           </div>
         </div>` : null}
@@ -1293,7 +1099,6 @@ function App() {
       ${niModal ? html`
         <div class="modal-overlay" onClick=${()=>setNiModal(false)}>
           <div class="modal-box" style="max-width:600px" onClick=${e=>e.stopPropagation()}>
-
             <div class="flex items-center justify-between px-6 py-5" style="border-bottom:1px solid #F1F5F9">
               <div>
                 <h3 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:17px;color:#1C1C1C;margin:0 0 2px">Nova Iniciativa</h3>
@@ -1301,149 +1106,103 @@ function App() {
               </div>
               <button onClick=${()=>setNiModal(false)} style="background:none;border:none;cursor:pointer;color:#C0C4CC">${IconX(18)}</button>
             </div>
-
             <div class="overflow-y-auto flex-1 px-6 py-5">
               <div class="flex flex-col gap-4">
-
-                <!-- Nome e Área -->
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                   <div>
-                    ${SL("Nome do colaborador *")}
-                    <input type="text" value=${newNi.nome_colaborador}
-                      onChange=${e=>setNewNi(p=>({...p,nome_colaborador:e.target.value}))}
-                      placeholder="Ex: Ana Carolina Lima"
+                    <label class="section-label" style="display:block">Nome do colaborador *</label>
+                    <input type="text" value=${newNi.nome_colaborador} onChange=${e=>setNewNi(p=>({...p,nome_colaborador:e.target.value}))} placeholder="Ex: Ana Carolina Lima"
                       style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
                   </div>
                   <div>
-                    ${SL("Área *")}
+                    <label class="section-label" style="display:block">Área *</label>
                     <select value=${newNi.area} onChange=${e=>setNewNi(p=>({...p,area:e.target.value}))}
                       style="width:100%;padding:9px 26px 9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;cursor:pointer;box-sizing:border-box">
                       ${AREAS.map(a=>html`<option key=${a} value=${a}>${a}</option>`)}
                     </select>
                   </div>
                 </div>
-
-                <!-- Problema -->
                 <div>
-                  ${SL("Problema / Oportunidade *")}
-                  <textarea value=${newNi.problema}
-                    onChange=${e=>setNewNi(p=>({...p,problema:e.target.value}))}
-                    placeholder="Descreva o problema atual ou a oportunidade identificada..."
-                    rows="3"
+                  <label class="section-label" style="display:block">Problema / Oportunidade *</label>
+                  <textarea value=${newNi.problema} onChange=${e=>setNewNi(p=>({...p,problema:e.target.value}))} placeholder="Descreva o problema ou oportunidade…" rows="3"
                     style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
                 </div>
-
-                <!-- Impacto e Tempo manual -->
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                   <div>
-                    ${SL("Impacto esperado")}
-                    <input type="text" value=${newNi.impacto}
-                      onChange=${e=>setNewNi(p=>({...p,impacto:e.target.value}))}
-                      placeholder="Ex: Reduzir custo ou aumentar margem"
+                    <label class="section-label" style="display:block">Impacto esperado</label>
+                    <input type="text" value=${newNi.impacto} onChange=${e=>setNewNi(p=>({...p,impacto:e.target.value}))} placeholder="Ex: Reduzir custo operacional"
                       style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
                   </div>
                   <div>
-                    ${SL("Tempo manual atual")}
-                    <input type="text" value=${newNi.tempo_manual}
-                      onChange=${e=>setNewNi(p=>({...p,tempo_manual:e.target.value}))}
-                      placeholder="Ex: 3h/semana"
+                    <label class="section-label" style="display:block">Tempo manual atual</label>
+                    <input type="text" value=${newNi.tempo_manual} onChange=${e=>setNewNi(p=>({...p,tempo_manual:e.target.value}))} placeholder="Ex: 3h/semana"
                       style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
                   </div>
                 </div>
-
-                <!-- Tipo e OKR -->
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                   <div>
-                    ${SL("Tipo de iniciativa")}
-                    <input type="text" value=${newNi.tipo}
-                      onChange=${e=>setNewNi(p=>({...p,tipo:e.target.value}))}
-                      placeholder="Ex: Automação, Agente de IA..."
+                    <label class="section-label" style="display:block">Tipo de iniciativa</label>
+                    <input type="text" value=${newNi.tipo} onChange=${e=>setNewNi(p=>({...p,tipo:e.target.value}))} placeholder="Ex: Automação, Agente de IA…"
                       style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
                   </div>
                   <div>
-                    ${SL("OKR relacionado")}
+                    <label class="section-label" style="display:block">OKR relacionado</label>
                     <select value=${newNi.okr} onChange=${e=>setNewNi(p=>({...p,okr:e.target.value}))}
                       style="width:100%;padding:9px 26px 9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;cursor:pointer;box-sizing:border-box">
                       ${OKRS.map(o=>html`<option key=${o} value=${o}>${o}</option>`)}
                     </select>
                   </div>
                 </div>
-
-                <!-- Classificação -->
                 <div>
-                  ${SL("Classificação")}
+                  <label class="section-label" style="display:block">Classificação</label>
                   <div class="flex gap-2">
                     ${CLASSIFS.map(c=>{ const s=CLF[c]; const act=newNi.classificacao===c; return html`
                       <button key=${c} onClick=${()=>setNewNi(p=>({...p,classificacao:c}))}
-                        style=${"padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
-                          +(act?"background:"+s.bg+";color:"+s.color+";border-color:"+s.border:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
-                        ${c}
-                      </button>`; })}
+                        style=${"padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"+(act?"background:"+s.bg+";color:"+s.color+";border-color:"+s.border:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                        ${c}</button>`; })}
                   </div>
                 </div>
-
-                <!-- Prioridade + Complexidade -->
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                   <div>
-                    ${SL("Prioridade")}
+                    <label class="section-label" style="display:block">Prioridade</label>
                     <div class="flex gap-2">
                       ${[["Alta","#F73A60","#FEE8ED","#FECDD3"],["Media","#D97706","#FFFBEB","#FDE68A"],["Baixa","#475569","#F1F5F9","#CBD5E1"]].map(([pr,clr,bg,bd])=>html`
                         <button key=${pr} onClick=${()=>setNewNi(p=>({...p,prioridade:pr}))}
-                          style=${"padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
-                            +(newNi.prioridade===pr?"background:"+bg+";color:"+clr+";border-color:"+bd:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
-                          ${pr}
-                        </button>`)})
+                          style=${"padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"+(newNi.prioridade===pr?"background:"+bg+";color:"+clr+";border-color:"+bd:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                          ${pr}</button>`)})
                     </div>
                   </div>
                   <div>
-                    ${SL("Complexidade (1-5)")}
+                    <label class="section-label" style="display:block">Complexidade (1-5)</label>
                     <div class="flex gap-1.5 items-center" style="padding-top:4px">
                       ${[1,2,3,4,5].map(n=>html`
                         <button key=${n} onClick=${()=>setNewNi(p=>({...p,complexidade:n}))}
-                          style=${"width:28px;height:28px;border-radius:50%;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"
-                            +(newNi.complexidade===n?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#9193A0")}>
-                          ${n}
-                        </button>`)}
+                          style=${"width:28px;height:28px;border-radius:50%;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(newNi.complexidade===n?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#9193A0")}>
+                          ${n}</button>`)}
                     </div>
                   </div>
                 </div>
-
-                <!-- Apoio AI Lead -->
                 <div>
-                  ${SL("Precisa de apoio do AI Lead?")}
+                  <label class="section-label" style="display:block">Precisa de apoio do AI Lead?</label>
                   <div class="flex gap-2">
                     ${["Sim","Nao","Talvez"].map(v=>html`
                       <button key=${v} onClick=${()=>setNewNi(p=>({...p,apoio_ai_lead:v}))}
-                        style=${"padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
-                          +(newNi.apoio_ai_lead===v?"background:#E5F6FB;color:#009FCF;border-color:#009FCF":"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
-                        ${v}
-                      </button>`)}
+                        style=${"padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"+(newNi.apoio_ai_lead===v?"background:#E5F6FB;color:#009FCF;border-color:#009FCF":"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                        ${v}</button>`)}
                   </div>
                 </div>
-
-                <!-- Notas -->
                 <div>
-                  ${SL("Notas internas (opcional)")}
-                  <textarea value=${newNi.notas}
-                    onChange=${e=>setNewNi(p=>({...p,notas:e.target.value}))}
-                    placeholder="Observações, contexto adicional, contatos..."
-                    rows="2"
+                  <label class="section-label" style="display:block">Notas internas (opcional)</label>
+                  <textarea value=${newNi.notas} onChange=${e=>setNewNi(p=>({...p,notas:e.target.value}))} placeholder="Observações, contexto adicional…" rows="2"
                     style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
                 </div>
-
               </div>
             </div>
-
             <div class="px-6 py-4 flex justify-end gap-2" style="border-top:1px solid #F1F5F9">
-              <button onClick=${()=>setNiModal(false)}
-                style="padding:9px 18px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid #E8ECF1;background:#fff;color:#4A4A4A;font-family:'Plus Jakarta Sans',sans-serif">
-                Cancelar
-              </button>
-              <button onClick=${createIniciativa}
-                disabled=${niSaving || !newNi.problema.trim() || !newNi.nome_colaborador.trim()}
-                style=${"padding:9px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;border:none;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"
-                  +(niSaving||!newNi.problema.trim()||!newNi.nome_colaborador.trim()?"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed":"background:#009FCF;color:#fff")}>
-                ${niSaving ? "Salvando…" : "Salvar Iniciativa"}
+              <button onClick=${()=>setNiModal(false)} style="padding:9px 18px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid #E8ECF1;background:#fff;color:#4A4A4A;font-family:'Plus Jakarta Sans',sans-serif">Cancelar</button>
+              <button onClick=${createIniciativa} disabled=${niSaving||!newNi.problema.trim()||!newNi.nome_colaborador.trim()}
+                style=${"padding:9px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;border:none;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(niSaving||!newNi.problema.trim()||!newNi.nome_colaborador.trim()?"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed":"background:#009FCF;color:#fff")}>
+                ${niSaving?"Salvando…":"Salvar Iniciativa"}
               </button>
             </div>
           </div>
@@ -1460,8 +1219,7 @@ function App() {
             <div class="flex flex-col gap-4">
               <div>
                 <label class="section-label" style="display:block">Nome *</label>
-                <input type="text" value=${newC.nome} onChange=${e=>setNewC(p=>({...p,nome:e.target.value}))}
-                  placeholder="Ex: Ecossistema de Atendimento"
+                <input type="text" value=${newC.nome} onChange=${e=>setNewC(p=>({...p,nome:e.target.value}))} placeholder="Ex: Ecossistema de Atendimento"
                   style="width:100%;padding:10px 14px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
               </div>
               <div>
@@ -1483,10 +1241,8 @@ function App() {
                 <div class="flex gap-2">
                   ${[["Alta","#F73A60","#FEE8ED","#FECDD3"],["Media","#D97706","#FFFBEB","#FDE68A"],["Baixa","#475569","#F1F5F9","#CBD5E1"]].map(([pr,clr,bg,bd])=>html`
                     <button key=${pr} onClick=${()=>setNewC(p=>({...p,prioridade:pr}))}
-                      style=${"padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
-                        +(newC.prioridade===pr?"background:"+bg+";color:"+clr+";border-color:"+bd:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
-                      ${pr}
-                    </button>`)})
+                      style=${"padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"+(newC.prioridade===pr?"background:"+bg+";color:"+clr+";border-color:"+bd:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                      ${pr}</button>`)})
                 </div>
               </div>
               ${clusters.length>0 ? html`
@@ -1494,102 +1250,57 @@ function App() {
                   <label class="section-label" style="display:block">Clusters existentes</label>
                   <div style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto">
                     ${clusters.map(c=>{
-                      const pri = c.prioridade || "Media";
-                      const priStyle = pri==="Alta"?"background:#FEE8ED;color:#F73A60;border-color:#FECDD3"
-                        :pri==="Baixa"?"background:#F1F5F9;color:#475569;border-color:#CBD5E1"
-                        :"background:#FFFBEB;color:#D97706;border-color:#FDE68A";
-                      const isEditingName = editingClusterName?.id === c.id;
-                      const isEditingPri  = editingClusterPri === c.id;
+                      const pri=c.prioridade||"Media";
+                      const priStyle=pri==="Alta"?"background:#FEE8ED;color:#F73A60;border-color:#FECDD3":pri==="Baixa"?"background:#F1F5F9;color:#475569;border-color:#CBD5E1":"background:#FFFBEB;color:#D97706;border-color:#FDE68A";
+                      const isEP=editingClusterPri===c.id;
+                      const isEN=editingClusterName?.id===c.id;
                       return html`
-                        <div key=${c.id} style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;border-radius:8px;background:${isEditingName?"#F7F9FC":"transparent"};border:1px solid ${isEditingName?"#E8ECF1":"transparent"}">
+                        <div key=${c.id} style=${"display:flex;flex-direction:column;gap:4px;padding:6px 8px;border-radius:8px;background:"+(isEN?"#F7F9FC":"transparent")+";border:1px solid "+(isEN?"#E8ECF1":"transparent")}>
                           <div class="flex items-center gap-2" style="font-size:12px;color:#4A4A4A">
                             <span class="rounded-full" style=${"width:8px;height:8px;background:"+c.cor+";display:inline-block;flex-shrink:0"}></span>
-                            <span style="flex:1;font-weight:${isEditingName?600:400}">${c.nome}</span>
-                            <!-- badge prioridade -->
-                            <button onClick=${()=>{ setEditingClusterPri(isEditingPri?null:c.id); setEditingClusterName(null); }}
-                              title="Editar prioridade"
-                              style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;cursor:pointer;transition:all .15s;"+priStyle}>
-                              ${pri}
-                            </button>
-                            <!-- lapis editar nome -->
-                            <button onClick=${()=>{ setEditingClusterName(isEditingName?null:{id:c.id,nome:c.nome,descricao:c.descricao||""}); setEditingClusterPri(null); }}
-                              title="Editar nome e descrição"
-                              style="background:none;border:none;cursor:pointer;padding:2px;color:${isEditingName?"#009FCF":"#C0C4CC"};transition:color .15s"
-                              onMouseEnter=${e=>e.currentTarget.style.color="#009FCF"}
-                              onMouseLeave=${e=>e.currentTarget.style.color=isEditingName?"#009FCF":"#C0C4CC"}>
+                            <span style="flex:1">${c.nome}</span>
+                            <button onClick=${()=>{ setEditingClusterPri(isEP?null:c.id); setEditingClusterName(null); }}
+                              style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;cursor:pointer;transition:all .15s;"+priStyle}>${pri}</button>
+                            <button onClick=${()=>{ setEditingClusterName(isEN?null:{id:c.id,nome:c.nome,descricao:c.descricao||""}); setEditingClusterPri(null); }}
+                              style=${"background:none;border:none;cursor:pointer;padding:2px;color:"+(isEN?"#009FCF":"#C0C4CC")}
+                              onMouseEnter=${e=>e.currentTarget.style.color="#009FCF"} onMouseLeave=${e=>e.currentTarget.style.color=isEN?"#009FCF":"#C0C4CC"}>
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             </button>
                             <span style="color:#C0C4CC;font-size:11px">${iniciativas.filter(i=>i.cluster_id===c.id).length} ini.</span>
-                            <button onClick=${()=>deleteCluster(c.id)}
-                              style="background:none;border:none;cursor:pointer;color:#E8ECF1;padding:2px"
-                              onMouseEnter=${e=>e.currentTarget.style.color="#F73A60"}
-                              onMouseLeave=${e=>e.currentTarget.style.color="#E8ECF1"}>
-                              ${IconX(12)}
-                            </button>
+                            <button onClick=${()=>deleteCluster(c.id)} style="background:none;border:none;cursor:pointer;color:#E8ECF1;padding:2px"
+                              onMouseEnter=${e=>e.currentTarget.style.color="#F73A60"} onMouseLeave=${e=>e.currentTarget.style.color="#E8ECF1"}>${IconX(12)}</button>
                           </div>
-                          <!-- seletor prioridade inline -->
-                          ${isEditingPri ? html`
+                          ${isEP ? html`
                             <div class="flex gap-1.5 pl-4">
                               ${[["Alta","#F73A60","#FEE8ED","#FECDD3"],["Media","#D97706","#FFFBEB","#FDE68A"],["Baixa","#475569","#F1F5F9","#CBD5E1"]].map(([pr,clr,bg,bd])=>html`
-                                <button key=${pr}
-                                  onClick=${async ()=>{ await patchCluster(c.id,{prioridade:pr}); setEditingClusterPri(null); }}
-                                  style=${"padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
-                                    +(pri===pr?"background:"+bg+";color:"+clr+";border-color:"+bd:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
-                                  ${pr}
-                                </button>`)}
+                                <button key=${pr} onClick=${async()=>{ await patchCluster(c.id,{prioridade:pr}); setEditingClusterPri(null); }}
+                                  style=${"padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"+(pri===pr?"background:"+bg+";color:"+clr+";border-color:"+bd:"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                                  ${pr}</button>`)}
                             </div>` : null}
-                          <!-- form editar nome/descrição inline -->
-                          ${isEditingName ? html`
+                          ${isEN ? html`
                             <div style="display:flex;flex-direction:column;gap:6px;padding-left:16px;padding-top:2px">
-                              <input type="text"
-                                value=${editingClusterName.nome}
-                                onChange=${e=>setEditingClusterName(p=>({...p,nome:e.target.value}))}
-                                placeholder="Nome do cluster"
+                              <input type="text" value=${editingClusterName.nome} onChange=${e=>setEditingClusterName(p=>({...p,nome:e.target.value}))} placeholder="Nome"
                                 style="width:100%;padding:6px 10px;background:#fff;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none;box-sizing:border-box" />
-                              <input type="text"
-                                value=${editingClusterName.descricao}
-                                onChange=${e=>setEditingClusterName(p=>({...p,descricao:e.target.value}))}
-                                placeholder="Descrição (opcional)"
+                              <input type="text" value=${editingClusterName.descricao} onChange=${e=>setEditingClusterName(p=>({...p,descricao:e.target.value}))} placeholder="Descrição (opcional)"
                                 style="width:100%;padding:6px 10px;background:#fff;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none;box-sizing:border-box" />
                               <div class="flex gap-2">
-                                <button
-                                  disabled=${!editingClusterName.nome.trim()}
-                                  onClick=${async ()=>{
-                                    await patchCluster(c.id,{nome:editingClusterName.nome.trim(),descricao:editingClusterName.descricao});
-                                    setEditingClusterName(null);
-                                  }}
-                                  style=${"padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:none;transition:all .15s;"
-                                    +(editingClusterName.nome.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
-                                  Salvar
-                                </button>
-                                <button onClick=${()=>setEditingClusterName(null)}
-                                  style="padding:5px 12px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;background:#fff;color:#9193A0;border:1px solid #E8ECF1">
-                                  Cancelar
-                                </button>
+                                <button disabled=${!editingClusterName.nome.trim()} onClick=${async()=>{ await patchCluster(c.id,{nome:editingClusterName.nome.trim(),descricao:editingClusterName.descricao}); setEditingClusterName(null); }}
+                                  style=${"padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:none;transition:all .15s;"+(editingClusterName.nome.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
+                                  Salvar</button>
+                                <button onClick=${()=>setEditingClusterName(null)} style="padding:5px 12px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;background:#fff;color:#9193A0;border:1px solid #E8ECF1">Cancelar</button>
                               </div>
                             </div>` : null}
                         </div>`; })}
                   </div>
                 </div>` : null}
               <button onClick=${createCluster} disabled=${!newC.nome.trim()}
-                style=${"width:100%;padding:11px;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"
-                  +(newC.nome.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
+                style=${"width:100%;padding:11px;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(newC.nome.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
                 Criar Cluster
               </button>
             </div>
           </div>
         </div>` : null}
-    </div>
-  `;
-}
-
-/* ─── AUTH GATE ──────────────────────────────────────────── */
-const SENHA_HASH = "c8a2902f5f9d95e52a015610ba32a37f35e39affdf054279c06ee7a08cc930b6";
-
-// Hash simples via SubtleCrypto (não é criptografia de servidor, só ofuscação cliente)
-async function hashSenha(s) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+    </div>`;
 }
 
 function LoginGate({ onAuth }) {
