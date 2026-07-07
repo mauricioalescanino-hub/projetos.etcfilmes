@@ -892,6 +892,7 @@ function App() {
   const [squads,      setSquads]      = useState([]);
   const [sqModal,     setSqModal]     = useState(false);
   const [newSq,       setNewSq]       = useState({nome:"",membros:""});
+  const [editingSq,   setEditingSq]   = useState(null); // {id, nome, membros}
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
   const [view,        setView]        = useState("lista");
@@ -996,6 +997,14 @@ function App() {
       const [s] = await supa("squads",{method:"POST",body:newSq,prefer:"return=representation"});
       setSquads(p=>[...p,s]); setNewSq({nome:"",membros:""});
     } catch(e) { alert("Erro: "+e.message); }
+  };
+
+  const patchSquad = async (sid, fields) => {
+    try {
+      await supa("squads?id=eq."+sid,{method:"PATCH",body:fields});
+      setSquads(p=>p.map(s=>s.id===sid?{...s,...fields}:s));
+      setEditingSq(null);
+    } catch(e) { alert("Erro ao atualizar squad: "+e.message); }
   };
 
   const deleteSquad = async (sid) => {
@@ -1423,14 +1432,18 @@ function App() {
                           ${getSquad(detail.squad_id).membros ? html`<p style="color:#9193A0;font-size:11px;margin:0">${getSquad(detail.squad_id).membros}</p>` : null}
                         </div>
                         <button onClick=${()=>patch(detail.id,{squad_id:null})} style="color:#9193A0;font-size:11px;font-weight:600;cursor:pointer;border:none;background:none">remover</button>
-                      </div>` : squads.length===0 ? html`
-                      <p style="color:#9193A0;font-size:12px">Nenhum squad criado ainda. Use o botão "Squad" no topo.</p>` : html`
+                      </div>
+                    ` : squads.length===0 ? html`
+                      <p style="color:#9193A0;font-size:12px">Nenhum squad criado ainda. Use o botão "Squad" no topo.</p>
+                    ` : html`
                       <div class="flex flex-wrap gap-2">
                         ${squads.map(s=>html`
                           <button key=${s.id} onClick=${()=>patch(detail.id,{squad_id:s.id})}
                             class="flex items-center gap-1.5 choice-btn">
                             👥 ${s.nome}
-                          </button>`)}`}
+                          </button>`)}
+                      </div>
+                    `}
                   </div>
 
                   <div style="margin-top:8px;padding-top:16px;border-top:1px solid #F1F5F9">
@@ -1565,53 +1578,102 @@ function App() {
 
       <!-- SQUAD MODAL -->
       ${sqModal ? html`
-        <div class="modal-overlay" onClick=${()=>setSqModal(false)}>
-          <div class="modal-box" style="max-width:420px;padding:24px" onClick=${e=>e.stopPropagation()}>
+        <div class="modal-overlay" onClick=${()=>{ setSqModal(false); setEditingSq(null); }}>
+          <div class="modal-box" style="max-width:440px;padding:24px" onClick=${e=>e.stopPropagation()}>
             <div class="flex items-center justify-between mb-5">
-              <h3 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:16px;color:#1C1C1C;margin:0">👥 Novo Squad</h3>
-              <button onClick=${()=>setSqModal(false)} style="background:none;border:none;cursor:pointer;color:#C0C4CC">${IconX(18)}</button>
+              <h3 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:16px;color:#1C1C1C;margin:0">👥 Squads</h3>
+              <button onClick=${()=>{ setSqModal(false); setEditingSq(null); }} style="background:none;border:none;cursor:pointer;color:#C0C4CC">${IconX(18)}</button>
             </div>
             <div class="flex flex-col gap-4">
-              <div>
-                <label class="section-label" style="display:block">Nome do Squad *</label>
-                <input type="text" value=${newSq.nome} onChange=${e=>setNewSq(p=>({...p,nome:e.target.value}))}
-                  placeholder="Ex: Squad Automação Financeira"
-                  style="width:100%;padding:10px 14px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
-              </div>
-              <div>
-                <label class="section-label" style="display:block">Participantes</label>
-                <textarea value=${newSq.membros} onChange=${e=>setNewSq(p=>({...p,membros:e.target.value}))}
-                  placeholder="Ex: Natalia, Eduardo, Camila"
-                  rows="3"
-                  style="width:100%;padding:10px 14px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;color:#1C1C1C;font-size:13px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
-              </div>
 
+              <!-- squads existentes com edição -->
               ${squads.length>0 ? html`
                 <div>
                   <label class="section-label" style="display:block">Squads existentes</label>
-                  <div style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto">
-                    ${squads.map(s=>html`
-                      <div key=${s.id} style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px">
-                        <span style="font-size:14px;flex-shrink:0">👥</span>
-                        <div style="flex:1;min-width:0">
-                          <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:12px;color:#1C1C1C;margin:0">${s.nome}</p>
-                          ${s.membros ? html`<p style="font-size:11px;color:#9193A0;margin:0">${s.membros}</p>` : null}
-                          <p style="font-size:10px;color:#C0C4CC;margin:2px 0 0">${iniciativas.filter(i=>i.squad_id===s.id).length} iniciativa(s)</p>
-                        </div>
-                        <button onClick=${()=>deleteSquad(s.id)}
-                          style="background:none;border:none;cursor:pointer;color:#E8ECF1;padding:2px;flex-shrink:0"
-                          onMouseEnter=${e=>e.currentTarget.style.color="#F73A60"}
-                          onMouseLeave=${e=>e.currentTarget.style.color="#E8ECF1"}>
-                          ${IconX(12)}
-                        </button>
-                      </div>`)}
+                  <div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto">
+                    ${squads.map(s=>{
+                      const isEditing = editingSq?.id===s.id;
+                      return html`
+                        <div key=${s.id} style=${"display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:"+(isEditing?"#fff":"#F7F9FC")+";border:1px solid "+(isEditing?"#009FCF":"#E8ECF1")+";border-radius:10px;transition:all .15s"}>
+                          ${isEditing ? html`
+                            <!-- modo edição -->
+                            <div style="display:flex;flex-direction:column;gap:6px">
+                              <input type="text" value=${editingSq.nome}
+                                onChange=${e=>setEditingSq(p=>({...p,nome:e.target.value}))}
+                                placeholder="Nome do Squad"
+                                style="width:100%;padding:7px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none;box-sizing:border-box" />
+                              <textarea value=${editingSq.membros}
+                                onChange=${e=>setEditingSq(p=>({...p,membros:e.target.value}))}
+                                placeholder="Participantes (Ex: Natalia, Eduardo, Camila)"
+                                rows="2"
+                                style="width:100%;padding:7px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
+                              <div class="flex gap-2">
+                                <button disabled=${!editingSq.nome.trim()} onClick=${()=>patchSquad(s.id,{nome:editingSq.nome.trim(),membros:editingSq.membros})}
+                                  style=${"padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:none;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(editingSq.nome.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
+                                  Salvar
+                                </button>
+                                <button onClick=${()=>setEditingSq(null)}
+                                  style="padding:5px 12px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;background:#fff;color:#9193A0;border:1px solid #E8ECF1;font-family:'Plus Jakarta Sans',sans-serif">
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          ` : html`
+                            <!-- modo leitura -->
+                            <div class="flex items-start gap-2">
+                              <span style="font-size:16px;flex-shrink:0">👥</span>
+                              <div style="flex:1;min-width:0">
+                                <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0 0 2px">${s.nome}</p>
+                                ${s.membros ? html`<p style="font-size:11px;color:#9193A0;margin:0;line-height:1.4">${s.membros}</p>` : html`<p style="font-size:11px;color:#C0C4CC;margin:0;font-style:italic">Sem membros definidos</p>`}
+                                <p style="font-size:10px;color:#C0C4CC;margin:3px 0 0">${iniciativas.filter(i=>i.squad_id===s.id).length} iniciativa(s)</p>
+                              </div>
+                              <div class="flex gap-1 flex-shrink-0">
+                                <!-- lápis editar -->
+                                <button onClick=${()=>setEditingSq({id:s.id,nome:s.nome,membros:s.membros||""})}
+                                  style="background:none;border:none;cursor:pointer;color:#C0C4CC;padding:3px"
+                                  onMouseEnter=${e=>e.currentTarget.style.color="#009FCF"}
+                                  onMouseLeave=${e=>e.currentTarget.style.color="#C0C4CC"}>
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                </button>
+                                <!-- excluir -->
+                                <button onClick=${()=>deleteSquad(s.id)}
+                                  style="background:none;border:none;cursor:pointer;color:#C0C4CC;padding:3px"
+                                  onMouseEnter=${e=>e.currentTarget.style.color="#F73A60"}
+                                  onMouseLeave=${e=>e.currentTarget.style.color="#C0C4CC"}>
+                                  ${IconX(13)}
+                                </button>
+                              </div>
+                            </div>
+                          `}
+                        </div>`;
+                    })}
                   </div>
                 </div>` : null}
 
-              <button onClick=${createSquad} disabled=${!newSq.nome.trim()}
-                style=${"width:100%;padding:11px;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(newSq.nome.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
-                Criar Squad
-              </button>
+              <!-- divisor -->
+              ${squads.length>0 ? html`<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:1px;background:#E8ECF1"></div><span style="font-size:11px;color:#C0C4CC;white-space:nowrap">novo squad</span><div style="flex:1;height:1px;background:#E8ECF1"></div></div>` : null}
+
+              <!-- criar novo squad -->
+              <div class="flex flex-col gap-3">
+                <div>
+                  <label class="section-label" style="display:block">Nome do Squad *</label>
+                  <input type="text" value=${newSq.nome} onChange=${e=>setNewSq(p=>({...p,nome:e.target.value}))}
+                    placeholder="Ex: Squad Automação Financeira"
+                    style="width:100%;padding:10px 14px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
+                </div>
+                <div>
+                  <label class="section-label" style="display:block">Participantes</label>
+                  <textarea value=${newSq.membros} onChange=${e=>setNewSq(p=>({...p,membros:e.target.value}))}
+                    placeholder="Ex: Natalia, Eduardo, Camila"
+                    rows="2"
+                    style="width:100%;padding:10px 14px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;color:#1C1C1C;font-size:13px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
+                </div>
+                <button onClick=${createSquad} disabled=${!newSq.nome.trim()}
+                  style=${"width:100%;padding:11px;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(newSq.nome.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
+                  Criar Squad
+                </button>
+              </div>
+
             </div>
           </div>
         </div>` : null}
