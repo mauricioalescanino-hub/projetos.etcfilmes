@@ -1716,17 +1716,18 @@ function LoginGate({ onAuth }) {
   const [loading, setLoading] = useState(false);
   const [show,    setShow]    = useState(false);
 
-  const tentar = async () => {
+  const tentar = () => {
     if (!senha.trim()) return;
     setLoading(true); setErro(false);
-    const h = await hashSenha(senha.trim());
-    if (h === SENHA_HASH) {
-      sessionStorage.setItem("painel_auth", "1");
-      onAuth();
-    } else {
-      setErro(true);
-    }
-    setLoading(false);
+    setTimeout(() => {
+      if (senha.trim() === "projetosetcfilmes#2026") {
+        sessionStorage.setItem("painel_auth", "1");
+        onAuth();
+      } else {
+        setErro(true);
+        setLoading(false);
+      }
+    }, 400);
   };
 
   const onKey = (e) => { if (e.key === "Enter") tentar(); };
