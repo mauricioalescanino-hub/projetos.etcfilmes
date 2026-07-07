@@ -889,10 +889,13 @@ Use no máximo 3 fases. Cada fase com 2 a 5 tarefas. Prazos em dias a partir de 
 function App() {
   const [iniciativas, setIniciativas] = useState([]);
   const [clusters,    setClusters]    = useState([]);
+  const [squads,      setSquads]      = useState([]);
+  const [sqModal,     setSqModal]     = useState(false);
+  const [newSq,       setNewSq]       = useState({nome:"",membros:""});
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
   const [view,        setView]        = useState("lista");
-  const [filters,     setFilters]     = useState({area:"",okr:"",classificacao:"",status:"",prioridade:"",cluster:""});
+  const [filters,     setFilters]     = useState({area:"",okr:"",classificacao:"",status:"",prioridade:"",cluster:"",squad:""});
   const [groupBy,     setGroupBy]     = useState("");
   const [detailId,    setDetailId]    = useState(null);
   const [detailTab,   setDetailTab]   = useState("iniciativa");
@@ -911,11 +914,13 @@ function App() {
   const init = async () => {
     setLoading(true); setError(null);
     try {
-      const [ini,cls] = await Promise.all([
+      const [ini,cls,sqs] = await Promise.all([
         supa("iniciativas?select=*&order=num.asc"),
         supa("clusters?select=*&order=created_at.asc"),
+        supa("squads?select=*&order=created_at.asc"),
       ]);
       setClusters(cls||[]);
+      setSquads(sqs||[]);
       if (!ini || ini.length===0) {
         await supa("iniciativas",{method:"POST",body:SEED,prefer:"return=minimal"});
         const seeded = await supa("iniciativas?select=*&order=num.asc");
@@ -985,8 +990,26 @@ function App() {
     } catch(e) { alert("Erro: "+e.message); }
   };
 
+  const createSquad = async () => {
+    if (!newSq.nome.trim()) return;
+    try {
+      const [s] = await supa("squads",{method:"POST",body:newSq,prefer:"return=representation"});
+      setSquads(p=>[...p,s]); setNewSq({nome:"",membros:""});
+    } catch(e) { alert("Erro: "+e.message); }
+  };
+
+  const deleteSquad = async (sid) => {
+    if (!confirm("Remover squad? As iniciativas não serão excluídas.")) return;
+    try {
+      await supa("iniciativas?squad_id=eq."+sid,{method:"PATCH",body:{squad_id:null}});
+      await supa("squads?id=eq."+sid,{method:"DELETE"});
+      setSquads(p=>p.filter(s=>s.id!==sid));
+      setIniciativas(p=>p.map(i=>i.squad_id===sid?{...i,squad_id:null}:i));
+    } catch(e) { alert("Erro: "+e.message); }
+  };
+
   const getCluster = (id) => clusters.find(c=>c.id===id);
-  const detail = detailId ? iniciativas.find(i=>i.id===detailId)||null : null;
+  const getSquad   = (id) => squads.find(s=>s.id===id);
 
   const filtered = useMemo(()=>iniciativas.filter(i=>{
     if (filters.area          && i.area!==filters.area)                      return false;
@@ -996,6 +1019,8 @@ function App() {
     if (filters.prioridade    && i.prioridade!==filters.prioridade)          return false;
     if (filters.cluster==="__none__" && i.cluster_id)                        return false;
     if (filters.cluster && filters.cluster!=="__none__" && i.cluster_id!==filters.cluster) return false;
+    if (filters.squad==="__none__"  && i.squad_id)                           return false;
+    if (filters.squad && filters.squad!=="__none__" && i.squad_id!==filters.squad) return false;
     return true;
   }),[iniciativas,filters]);
 
@@ -1019,6 +1044,7 @@ function App() {
   /* ── CARD ── */
   const Card = (ini) => {
     const cl = getCluster(ini.cluster_id);
+    const sq = getSquad(ini.squad_id);
     const cs = CLF[ini.classificacao]  || CLF.Projeto;
     const os = OKR[ini.okr]            || OKR.Transversal;
     const ss = STA[ini.status]         || STA.Backlog;
@@ -1052,11 +1078,18 @@ function App() {
             </div>
             <span style="font-size:10px;color:#9193A0;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600">${concluidas}/${etapas.length}</span>
           </div>` : null}
-        ${cl ? html`
-          <div class="flex items-center gap-1.5">
-            <span class="rounded-full" style=${"width:7px;height:7px;background:"+cl.cor+";display:inline-block;flex-shrink:0"}></span>
-            <span class="text-xs lc1" style="color:#9193A0">${cl.nome}</span>
-          </div>` : null}
+        <div class="flex items-center gap-3" style="flex-wrap:wrap">
+          ${cl ? html`
+            <div class="flex items-center gap-1">
+              <span class="rounded-full" style=${"width:6px;height:6px;background:"+cl.cor+";display:inline-block;flex-shrink:0"}></span>
+              <span class="text-xs lc1" style="color:#9193A0">${cl.nome}</span>
+            </div>` : null}
+          ${sq ? html`
+            <div class="flex items-center gap-1">
+              <span style="font-size:10px">👥</span>
+              <span class="text-xs" style="color:#009FCF;font-weight:600">${sq.nome}</span>
+            </div>` : null}
+        </div>
         <p class="text-xs" style="color:#C0C4CC">${(ini.nome_colaborador||"").split(" ").slice(0,2).join(" ")}</p>
       </div>`;
   };
@@ -1109,6 +1142,7 @@ function App() {
           <button class=${"btn-nav "+(view==="lista"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("lista")}>${IconList(12)} Lista</button>
           <button class=${"btn-nav "+(view==="clusters"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("clusters")}>${IconLayers(12)} Clusters</button>
           <button class="btn-nav btn-nav-default" onClick=${()=>setCModal(true)}>${IconPlus(12)} Cluster</button>
+          <button class="btn-nav btn-nav-default" onClick=${()=>{ setNewSq({nome:"",membros:""}); setSqModal(true); }}>${IconPlus(12)} Squad</button>
           <button class="btn-nav btn-nav-default" onClick=${exportCSV}>${IconDL(12)} CSV</button>
         </div>
       </div>
@@ -1142,8 +1176,14 @@ function App() {
           <option value="__none__">Sem cluster</option>
           ${clusters.map(c=>html`<option key=${c.id} value=${c.id}>${c.nome}</option>`)}
         </select>
+        <select value=${filters.squad} onChange=${e=>setFilters(p=>({...p,squad:e.target.value}))}
+          style="background:#fff;border:1px solid #E8ECF1;color:#4A4A4A;font-size:12px;border-radius:8px;padding:6px 26px 6px 10px;outline:none;cursor:pointer">
+          <option value="">Squad</option>
+          <option value="__none__">Sem squad</option>
+          ${squads.map(s=>html`<option key=${s.id} value=${s.id}>${s.nome}</option>`)}
+        </select>
         ${Object.values(filters).some(Boolean) ? html`
-          <button onClick=${()=>setFilters({area:"",okr:"",classificacao:"",status:"",prioridade:"",cluster:""})}
+          <button onClick=${()=>setFilters({area:"",okr:"",classificacao:"",status:"",prioridade:"",cluster:"",squad:""})}
             class="flex items-center gap-1" style="font-size:12px;color:#F73A60;font-weight:600;cursor:pointer;border:none;background:transparent;padding:4px 8px;border-radius:6px">
             ${IconX(10)} Limpar
           </button>` : null}
@@ -1154,7 +1194,7 @@ function App() {
         <!-- agrupar por -->
         <span style="color:#9193A0;font-size:11px;font-weight:600;letter-spacing:.06em">AGRUPAR</span>
         <div class="flex gap-1.5">
-          ${[["","Nenhum"],["area","Departamento"],["status","Status"],["prioridade","Prioridade"],["classificacao","Tipo"],["okr","OKR"]].map(([val,lbl])=>html`
+          ${[["","Nenhum"],["area","Departamento"],["status","Status"],["prioridade","Prioridade"],["classificacao","Tipo"],["okr","OKR"],["squad","Squad"]].map(([val,lbl])=>html`
             <button key=${val} onClick=${()=>setGroupBy(val)}
               style=${"padding:5px 10px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
                 +(groupBy===val?"background:#009FCF;color:#fff;border-color:#009FCF":"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
@@ -1185,6 +1225,7 @@ function App() {
               prioridade:   { label: i=>i.prioridade||"—",        dot: i=>({Alta:"#F73A60",Media:"#D97706",Baixa:"#475569"}[i.prioridade]||"#9193A0"), ordem: PRIORS },
               classificacao:{ label: i=>i.classificacao||"—",     dot: i=>(CLF[i.classificacao]||CLF.Projeto).color, ordem: CLASSIFS },
               okr:          { label: i=>i.okr||"—",               dot: i=>(OKR[i.okr]||OKR.Transversal).color, ordem: OKRS },
+              squad:        { label: i=>getSquad(i.squad_id)?.nome||"Sem Squad", dot:"#00BE8C", ordem: squads.map(s=>s.nome) },
             };
             const cfg = GRP_CFG[groupBy] || GRP_CFG.area;
 
@@ -1372,6 +1413,25 @@ function App() {
                           </button>`)}`}
                   </div>
 
+                  <div>${SL("Squad")}
+                    ${getSquad(detail.squad_id) ? html`
+                      <div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background:#F7F9FC;border:1px solid #E8ECF1">
+                        <span style="font-size:14px">👥</span>
+                        <div style="flex:1">
+                          <p style="color:#1C1C1C;font-size:13px;font-weight:600;margin:0">${getSquad(detail.squad_id).nome}</p>
+                          ${getSquad(detail.squad_id).membros ? html`<p style="color:#9193A0;font-size:11px;margin:0">${getSquad(detail.squad_id).membros}</p>` : null}
+                        </div>
+                        <button onClick=${()=>patch(detail.id,{squad_id:null})} style="color:#9193A0;font-size:11px;font-weight:600;cursor:pointer;border:none;background:none">remover</button>
+                      </div>` : squads.length===0 ? html`
+                      <p style="color:#9193A0;font-size:12px">Nenhum squad criado ainda. Use o botão "Squad" no topo.</p>` : html`
+                      <div class="flex flex-wrap gap-2">
+                        ${squads.map(s=>html`
+                          <button key=${s.id} onClick=${()=>patch(detail.id,{squad_id:s.id})}
+                            class="flex items-center gap-1.5 choice-btn">
+                            👥 ${s.nome}
+                          </button>`)}`}
+                  </div>
+
                   <div style="margin-top:8px;padding-top:16px;border-top:1px solid #F1F5F9">
                     <button onClick=${async ()=>{
                       if (!confirm("Excluir esta iniciativa permanentemente?")) return;
@@ -1497,6 +1557,59 @@ function App() {
               <button onClick=${createIniciativa} disabled=${niSaving||!newNi.problema.trim()||!newNi.nome_colaborador.trim()}
                 style=${"padding:9px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;border:none;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(niSaving||!newNi.problema.trim()||!newNi.nome_colaborador.trim()?"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed":"background:#009FCF;color:#fff")}>
                 ${niSaving?"Salvando…":"Salvar Iniciativa"}
+              </button>
+            </div>
+          </div>
+        </div>` : null}
+
+      <!-- SQUAD MODAL -->
+      ${sqModal ? html`
+        <div class="modal-overlay" onClick=${()=>setSqModal(false)}>
+          <div class="modal-box" style="max-width:420px;padding:24px" onClick=${e=>e.stopPropagation()}>
+            <div class="flex items-center justify-between mb-5">
+              <h3 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:16px;color:#1C1C1C;margin:0">👥 Novo Squad</h3>
+              <button onClick=${()=>setSqModal(false)} style="background:none;border:none;cursor:pointer;color:#C0C4CC">${IconX(18)}</button>
+            </div>
+            <div class="flex flex-col gap-4">
+              <div>
+                <label class="section-label" style="display:block">Nome do Squad *</label>
+                <input type="text" value=${newSq.nome} onChange=${e=>setNewSq(p=>({...p,nome:e.target.value}))}
+                  placeholder="Ex: Squad Automação Financeira"
+                  style="width:100%;padding:10px 14px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
+              </div>
+              <div>
+                <label class="section-label" style="display:block">Participantes</label>
+                <textarea value=${newSq.membros} onChange=${e=>setNewSq(p=>({...p,membros:e.target.value}))}
+                  placeholder="Ex: Natalia, Eduardo, Camila"
+                  rows="3"
+                  style="width:100%;padding:10px 14px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;color:#1C1C1C;font-size:13px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
+              </div>
+
+              ${squads.length>0 ? html`
+                <div>
+                  <label class="section-label" style="display:block">Squads existentes</label>
+                  <div style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto">
+                    ${squads.map(s=>html`
+                      <div key=${s.id} style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px">
+                        <span style="font-size:14px;flex-shrink:0">👥</span>
+                        <div style="flex:1;min-width:0">
+                          <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:12px;color:#1C1C1C;margin:0">${s.nome}</p>
+                          ${s.membros ? html`<p style="font-size:11px;color:#9193A0;margin:0">${s.membros}</p>` : null}
+                          <p style="font-size:10px;color:#C0C4CC;margin:2px 0 0">${iniciativas.filter(i=>i.squad_id===s.id).length} iniciativa(s)</p>
+                        </div>
+                        <button onClick=${()=>deleteSquad(s.id)}
+                          style="background:none;border:none;cursor:pointer;color:#E8ECF1;padding:2px;flex-shrink:0"
+                          onMouseEnter=${e=>e.currentTarget.style.color="#F73A60"}
+                          onMouseLeave=${e=>e.currentTarget.style.color="#E8ECF1"}>
+                          ${IconX(12)}
+                        </button>
+                      </div>`)}
+                  </div>
+                </div>` : null}
+
+              <button onClick=${createSquad} disabled=${!newSq.nome.trim()}
+                style=${"width:100%;padding:11px;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(newSq.nome.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
+                Criar Squad
               </button>
             </div>
           </div>
