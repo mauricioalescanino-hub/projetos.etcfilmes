@@ -65,7 +65,7 @@ const ANALYZE_ENDPOINT = "https://etc-filmes-proxy.vercel.app/api/anthropic";
 
 /* ─── CONSTANTS ──────────────────────────────────────────── */
 const STATUS_OPTS = ["Backlog","Em Analise","Aprovada","Em Desenvolvimento","Concluida"];
-const AREAS       = ["Atendimento","Producao","Comercial","Financeiro","RH","CL"];
+const AREAS       = ["Atendimento","Producao","Comercial","Financeiro","RH","CL","TI","Marketing"];
 const OKRS        = ["OKR 1 Receita","OKR 2 Margem","Transversal"];
 const CLASSIFS    = ["Ideia","Tarefa","Projeto"];
 const PRIORS      = ["Alta","Media","Baixa"];
@@ -1393,7 +1393,7 @@ function App() {
                 ${[
                   ["iniciativa","Iniciativa"],
                   ["planejamento","Planejamento"],
-                  ...(detail.classificacao==="Projeto" ? [["visao","Declaração de Visão"]] : []),
+                  ...((!detail.classificacao || detail.classificacao==="Projeto") ? [["visao","Declaração de Visão"]] : []),
                 ].map(([tab,lbl])=>html`
                   <button key=${tab} onClick=${()=>setDetailTab(tab)}
                     style=${"padding:8px 16px;border-radius:8px 8px 0 0;font-size:12px;font-weight:600;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;gap:6px;"
