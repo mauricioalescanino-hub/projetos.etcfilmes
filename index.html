@@ -900,6 +900,8 @@ function App() {
   const [groupBy,     setGroupBy]     = useState("");
   const [detailId,    setDetailId]    = useState(null);
   const [detailTab,   setDetailTab]   = useState("iniciativa");
+  const [editingInfo, setEditingInfo] = useState(false);
+  const [infoForm,    setInfoForm]    = useState({});
   const [cModal,      setCModal]      = useState(false);
   const [newC,        setNewC]        = useState({nome:"",descricao:"",cor:CLR_CLUST[0],prioridade:"Media"});
   const [editingClusterPri,  setEditingClusterPri]  = useState(null);
@@ -1361,7 +1363,30 @@ function App() {
                   <span class="pill" style="background:#F1F5F9;color:#4A4A4A;border-color:#E8ECF1;font-size:11px">${detail.area}</span>
                   <span class="pill" style="background:#F7F9FC;color:#9193A0;border-color:#E8ECF1;font-size:11px;font-family:monospace">#${String(detail.num).padStart(2,"0")}</span>
                 </div>
-                <button onClick=${()=>setDetailId(null)} style="background:none;border:none;cursor:pointer;color:#C0C4CC;margin-left:12px;flex-shrink:0;padding:4px">${IconX(18)}</button>
+                <div class="flex items-center gap-2">
+                  ${detailTab==="iniciativa" ? html`
+                    <button onClick=${()=>{
+                      if (!editingInfo) {
+                        setInfoForm({
+                          nome_colaborador: detail.nome_colaborador||"",
+                          area:             detail.area||"",
+                          problema:         detail.problema||"",
+                          impacto:          detail.impacto||"",
+                          tempo_manual:     detail.tempo_manual||"",
+                          apoio_ai_lead:    detail.apoio_ai_lead||"Talvez",
+                          tipo:             detail.tipo||"",
+                          complexidade:     detail.complexidade||3,
+                          notas:            detail.notas||"",
+                        });
+                      }
+                      setEditingInfo(p=>!p);
+                    }}
+                      style=${"display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"+(editingInfo?"background:#E5F6FB;color:#009FCF;border-color:#009FCF":"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      ${editingInfo?"Editando":"Editar"}
+                    </button>` : null}
+                  <button onClick=${()=>{ setDetailId(null); setEditingInfo(false); }} style="background:none;border:none;cursor:pointer;color:#C0C4CC;padding:4px">${IconX(18)}</button>
+                </div>
               </div>
               <p style="color:#9193A0;font-size:12px;margin-bottom:14px">👤 ${detail.nome_colaborador}</p>
               <div class="flex gap-1">
@@ -1384,16 +1409,109 @@ function App() {
             <div class="overflow-y-auto flex-1 px-6 py-5">
               ${detailTab==="iniciativa" ? html`
                 <div class="flex flex-col gap-5">
-                  <div>
-                    ${SL("Problema")}
-                    <p style="color:#1C1C1C;font-size:13px;line-height:1.65">${detail.problema}</p>
-                  </div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-                    ${[["Tempo manual",detail.tempo_manual],["Apoio AI Lead",detail.apoio_ai_lead],["Tipo",detail.tipo]].map(([l,v])=>html`
-                      <div key=${l}>${SL(l)}<p style="color:#4A4A4A;font-size:13px">${v}</p></div>`)}
-                    <div>${SL("Complexidade")}${Dot(detail.complexidade)}</div>
-                  </div>
-                  ${detail.notas ? html`<div>${SL("Notas")}<p style="color:#4A4A4A;font-size:12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;padding:12px;line-height:1.6">${detail.notas}</p></div>` : null}
+
+                  ${editingInfo ? html`
+                    <!-- MODO EDIÇÃO -->
+                    <div class="flex flex-col gap-4">
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                        <div>
+                          ${SL("Nome do colaborador")}
+                          <input type="text" value=${infoForm.nome_colaborador}
+                            onChange=${e=>setInfoForm(p=>({...p,nome_colaborador:e.target.value}))}
+                            style="width:100%;padding:8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
+                        </div>
+                        <div>
+                          ${SL("Área")}
+                          <select value=${infoForm.area} onChange=${e=>setInfoForm(p=>({...p,area:e.target.value}))}
+                            style="width:100%;padding:8px 26px 8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;cursor:pointer;box-sizing:border-box">
+                            ${AREAS.map(a=>html`<option key=${a} value=${a}>${a}</option>`)}
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        ${SL("Problema / Oportunidade")}
+                        <textarea value=${infoForm.problema}
+                          onChange=${e=>setInfoForm(p=>({...p,problema:e.target.value}))}
+                          rows="3"
+                          style="width:100%;padding:8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif;line-height:1.55"></textarea>
+                      </div>
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                        <div>
+                          ${SL("Impacto esperado")}
+                          <input type="text" value=${infoForm.impacto}
+                            onChange=${e=>setInfoForm(p=>({...p,impacto:e.target.value}))}
+                            style="width:100%;padding:8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
+                        </div>
+                        <div>
+                          ${SL("Tempo manual atual")}
+                          <input type="text" value=${infoForm.tempo_manual}
+                            onChange=${e=>setInfoForm(p=>({...p,tempo_manual:e.target.value}))}
+                            style="width:100%;padding:8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
+                        </div>
+                        <div>
+                          ${SL("Tipo de iniciativa")}
+                          <input type="text" value=${infoForm.tipo}
+                            onChange=${e=>setInfoForm(p=>({...p,tipo:e.target.value}))}
+                            style="width:100%;padding:8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
+                        </div>
+                        <div>
+                          ${SL("Apoio AI Lead")}
+                          <div class="flex gap-2" style="padding-top:4px">
+                            ${["Sim","Nao","Talvez"].map(v=>html`
+                              <button key=${v} onClick=${()=>setInfoForm(p=>({...p,apoio_ai_lead:v}))}
+                                style=${"padding:5px 12px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"+(infoForm.apoio_ai_lead===v?"background:#E5F6FB;color:#009FCF;border-color:#009FCF":"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+                                ${v}
+                              </button>`)}
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        ${SL("Complexidade (1-5)")}
+                        <div class="flex gap-2" style="padding-top:4px">
+                          ${[1,2,3,4,5].map(n=>html`
+                            <button key=${n} onClick=${()=>setInfoForm(p=>({...p,complexidade:n}))}
+                              style=${"width:32px;height:32px;border-radius:50%;border:none;cursor:pointer;font-size:13px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(infoForm.complexidade===n?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#9193A0")}>
+                              ${n}
+                            </button>`)}
+                        </div>
+                      </div>
+                      <div>
+                        ${SL("Notas internas")}
+                        <textarea value=${infoForm.notas}
+                          onChange=${e=>setInfoForm(p=>({...p,notas:e.target.value}))}
+                          rows="2" placeholder="Observações, contexto adicional..."
+                          style="width:100%;padding:8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
+                      </div>
+                      <div class="flex gap-2 justify-end" style="padding-top:4px">
+                        <button onClick=${()=>setEditingInfo(false)}
+                          style="padding:7px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:#9193A0;border:1px solid #E8ECF1;font-family:'Plus Jakarta Sans',sans-serif">
+                          Cancelar
+                        </button>
+                        <button onClick=${async()=>{
+                          await patch(detail.id, infoForm);
+                          setEditingInfo(false);
+                        }} disabled=${saving===detail.id}
+                          style="padding:7px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;background:#009FCF;color:#fff;border:none;font-family:'Plus Jakarta Sans',sans-serif">
+                          ${saving===detail.id?"Salvando…":"Salvar alterações"}
+                        </button>
+                      </div>
+                    </div>
+                  ` : html`
+                    <!-- MODO LEITURA -->
+                    <div>
+                      ${SL("Problema")}
+                      <p style="color:#1C1C1C;font-size:13px;line-height:1.65">${detail.problema}</p>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                      ${[["Tempo manual",detail.tempo_manual],["Apoio AI Lead",detail.apoio_ai_lead],["Tipo",detail.tipo]].map(([l,v])=>html`
+                        <div key=${l}>${SL(l)}<p style="color:#4A4A4A;font-size:13px">${v||"—"}</p></div>`)}
+                      <div>${SL("Complexidade")}${Dot(detail.complexidade)}</div>
+                    </div>
+                    ${detail.notas ? html`
+                      <div>${SL("Notas")}
+                        <p style="color:#4A4A4A;font-size:12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;padding:12px;line-height:1.6">${detail.notas}</p>
+                      </div>` : null}
+                  `}
 
                   <div>${SL("Status")}
                     ${ChoiceRow({opts:STATUS_OPTS, val:detail.status, styleMap:STA, onPick:s=>patch(detail.id,{status:s})})}
