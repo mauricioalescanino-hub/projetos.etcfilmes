@@ -1010,6 +1010,7 @@ function App() {
 
   const getCluster = (id) => clusters.find(c=>c.id===id);
   const getSquad   = (id) => squads.find(s=>s.id===id);
+  const detail = detailId ? iniciativas.find(i=>i.id===detailId)||null : null;
 
   const filtered = useMemo(()=>iniciativas.filter(i=>{
     if (filters.area          && i.area!==filters.area)                      return false;
