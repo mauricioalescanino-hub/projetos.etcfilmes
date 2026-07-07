@@ -1532,13 +1532,17 @@ function App() {
                         <span class="rounded-full" style=${"width:8px;height:8px;background:"+getCluster(detail.cluster_id).cor+";display:inline-block;flex-shrink:0"}></span>
                         <span style="color:#1C1C1C;font-size:13px;flex:1">${getCluster(detail.cluster_id).nome}</span>
                         <button onClick=${()=>patch(detail.id,{cluster_id:null})} style="color:#9193A0;font-size:11px;font-weight:600;cursor:pointer;border:none;background:none">remover</button>
-                      </div>` : clusters.length===0 ? html`
-                      <p style="color:#9193A0;font-size:12px">Nenhum cluster criado ainda.</p>` : html`
+                      </div>
+                    ` : clusters.length===0 ? html`
+                      <p style="color:#9193A0;font-size:12px">Nenhum cluster criado ainda.</p>
+                    ` : html`
                       <div class="flex flex-wrap gap-2">
                         ${clusters.map(c=>html`
                           <button key=${c.id} onClick=${()=>patch(detail.id,{cluster_id:c.id})} class="flex items-center gap-1.5 choice-btn">
                             <span class="rounded-full" style=${"width:7px;height:7px;background:"+c.cor+";display:inline-block"}></span>${c.nome}
-                          </button>`)}`}
+                          </button>`)}
+                      </div>
+                    `}
                   </div>
 
                   <div>${SL("Squad")}
