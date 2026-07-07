@@ -893,6 +893,7 @@ function App() {
   const [error,       setError]       = useState(null);
   const [view,        setView]        = useState("lista");
   const [filters,     setFilters]     = useState({area:"",okr:"",classificacao:"",status:"",prioridade:"",cluster:""});
+  const [groupBy,     setGroupBy]     = useState("");
   const [detailId,    setDetailId]    = useState(null);
   const [detailTab,   setDetailTab]   = useState("iniciativa");
   const [cModal,      setCModal]      = useState(false);
@@ -1126,7 +1127,7 @@ function App() {
         ${Object.values(filters).some(Boolean) ? html`<span style="margin-left:auto;color:#F5BC50;font-weight:700;font-size:12px;font-family:'Plus Jakarta Sans',sans-serif">${filtered.length} visíveis</span>` : null}
       </div>
 
-      <!-- FILTERS -->
+      <!-- FILTERS + AGRUPAR -->
       <div class="flex flex-wrap gap-2 px-6 py-2.5 items-center" style="background:#fff;border-bottom:1px solid #E8ECF1">
         <span style="color:#9193A0;font-size:11px;font-weight:600;letter-spacing:.06em">FILTRAR</span>
         ${[{k:"area",opts:AREAS,ph:"Área"},{k:"classificacao",opts:CLASSIFS,ph:"Tipo"},{k:"okr",opts:OKRS,ph:"OKR"},{k:"prioridade",opts:PRIORS,ph:"Prioridade"},{k:"status",opts:STATUS_OPTS,ph:"Status"}].map(({k,opts,ph})=>html`
@@ -1146,19 +1147,115 @@ function App() {
             class="flex items-center gap-1" style="font-size:12px;color:#F73A60;font-weight:600;cursor:pointer;border:none;background:transparent;padding:4px 8px;border-radius:6px">
             ${IconX(10)} Limpar
           </button>` : null}
+
+        <!-- divisor -->
+        <div style="width:1px;background:#E8ECF1;align-self:stretch;margin:0 4px"></div>
+
+        <!-- agrupar por -->
+        <span style="color:#9193A0;font-size:11px;font-weight:600;letter-spacing:.06em">AGRUPAR</span>
+        <div class="flex gap-1.5">
+          ${[["","Nenhum"],["area","Departamento"],["status","Status"],["prioridade","Prioridade"],["classificacao","Tipo"],["okr","OKR"]].map(([val,lbl])=>html`
+            <button key=${val} onClick=${()=>setGroupBy(val)}
+              style=${"padding:5px 10px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"
+                +(groupBy===val?"background:#009FCF;color:#fff;border-color:#009FCF":"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+              ${lbl}
+            </button>`)}
+        </div>
       </div>
 
       <!-- GRID -->
       <div class="flex-1 overflow-auto px-6 py-6">
         ${view==="lista" ? html`
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">
-            ${filtered.map(i=>Card(i))}
-            ${filtered.length===0 ? html`
-              <div style="grid-column:1/-1;text-align:center;padding:64px 0;color:#9193A0">
-                <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:16px;color:#4A4A4A;margin-bottom:4px">Nenhuma iniciativa encontrada</p>
-                <p style="font-size:13px">Ajuste os filtros.</p>
-              </div>` : null}
-          </div>` : html`
+          ${(()=>{
+            /* ── sem agrupamento ── */
+            if (!groupBy) return html`
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">
+                ${filtered.map(i=>Card(i))}
+                ${filtered.length===0 ? html`
+                  <div style="grid-column:1/-1;text-align:center;padding:64px 0;color:#9193A0">
+                    <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:16px;color:#4A4A4A;margin-bottom:4px">Nenhuma iniciativa encontrada</p>
+                    <p style="font-size:13px">Ajuste os filtros.</p>
+                  </div>` : null}
+              </div>`;
+
+            /* ── config visual por critério ── */
+            const GRP_CFG = {
+              area:         { label: i=>i.area||"Sem área",       dot:"#009FCF", ordem: AREAS },
+              status:       { label: i=>i.status||"Backlog",      dot: i=>(STA[i.status]||STA.Backlog).color, ordem: STATUS_OPTS },
+              prioridade:   { label: i=>i.prioridade||"—",        dot: i=>({Alta:"#F73A60",Media:"#D97706",Baixa:"#475569"}[i.prioridade]||"#9193A0"), ordem: PRIORS },
+              classificacao:{ label: i=>i.classificacao||"—",     dot: i=>(CLF[i.classificacao]||CLF.Projeto).color, ordem: CLASSIFS },
+              okr:          { label: i=>i.okr||"—",               dot: i=>(OKR[i.okr]||OKR.Transversal).color, ordem: OKRS },
+            };
+            const cfg = GRP_CFG[groupBy] || GRP_CFG.area;
+
+            /* calcular grupos na ordem definida */
+            const grupos = [];
+            const ordemBase = cfg.ordem || [];
+            const valoresPresentes = [...new Set(filtered.map(i=>cfg.label(i)))];
+            const ordemFinal = [...ordemBase.filter(v=>valoresPresentes.includes(v)), ...valoresPresentes.filter(v=>!ordemBase.includes(v))];
+
+            ordemFinal.forEach(grupNome=>{
+              const itens = filtered.filter(i=>cfg.label(i)===grupNome);
+              if (itens.length) grupos.push({nome:grupNome, itens});
+            });
+
+            const dotColor = (g) => {
+              if (typeof cfg.dot === "function") return cfg.dot(g.itens[0]);
+              return cfg.dot;
+            };
+
+            /* cor do badge de status/prioridade no header do grupo */
+            const headerBadge = (nome) => {
+              if (groupBy==="status")     return STA[nome]  || STA.Backlog;
+              if (groupBy==="prioridade") return PRI[nome]  || {bg:"#F1F5F9",color:"#475569",border:"#CBD5E1"};
+              if (groupBy==="classificacao") return CLF[nome] || CLF.Projeto;
+              if (groupBy==="okr")        return OKR[nome]  || OKR.Transversal;
+              return null;
+            };
+
+            return html`
+              <div style="display:flex;flex-direction:column;gap:28px">
+                ${grupos.map(g=>{
+                  const concl = g.itens.filter(i=>(i.planejamento||[]).some(e=>e.status==="Concluído")).length;
+                  const comPlano = g.itens.filter(i=>i.planejamento?.length>0).length;
+                  const badge = headerBadge(g.nome);
+                  return html`
+                    <div key=${g.nome}>
+                      <!-- header do grupo -->
+                      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid #F1F5F9">
+                        <span style=${"width:10px;height:10px;border-radius:50%;background:"+dotColor(g)+";display:inline-block;flex-shrink:0"}></span>
+                        <h2 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:14px;color:#1C1C1C;margin:0">${g.nome}</h2>
+                        ${badge ? html`<span style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;background:"+badge.bg+";color:"+badge.color+";border-color:"+(badge.border||badge.bg)}>${g.nome}</span>` : null}
+                        <span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:600;color:#9193A0">${g.itens.length} iniciativa${g.itens.length!==1?"s":""}</span>
+                        ${comPlano>0 ? html`<span style="font-size:11px;color:#9193A0">· ${comPlano} com plano</span>` : null}
+                        <!-- mini barra de progresso SMART -->
+                        ${(()=>{
+                          const comSmart = g.itens.filter(i=>i.analise_smart).length;
+                          if (!comSmart) return null;
+                          const pct = Math.round(comSmart/g.itens.length*100);
+                          return html`
+                            <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+                              <span style="font-size:10px;color:#9193A0">SMART ${pct}%</span>
+                              <div style="width:48px;height:4px;background:#F1F5F9;border-radius:999px;overflow:hidden">
+                                <div style=${"height:100%;background:#6D28D9;border-radius:999px;width:"+pct+"%"}></div>
+                              </div>
+                            </div>`;
+                        })()}
+                      </div>
+                      <!-- cards do grupo -->
+                      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">
+                        ${g.itens.map(i=>Card(i))}
+                      </div>
+                    </div>`;
+                })}
+                ${grupos.length===0 ? html`
+                  <div style="text-align:center;padding:64px 0;color:#9193A0">
+                    <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:16px;color:#4A4A4A;margin-bottom:4px">Nenhuma iniciativa encontrada</p>
+                    <p style="font-size:13px">Ajuste os filtros.</p>
+                  </div>` : null}
+              </div>`;
+          })()}
+        ` : html`
           <div class="flex flex-col gap-10">
             ${clusters.map(cl=>{
               const items = filtered.filter(i=>i.cluster_id===cl.id);
