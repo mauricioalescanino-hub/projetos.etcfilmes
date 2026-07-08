@@ -887,7 +887,7 @@ Use no máximo 3 fases. Cada fase com 2 a 5 tarefas. Prazos em dias a partir de 
 }
 
 /* ─── ATIVIDADES VIEW ────────────────────────────────────── */
-function AtividadesView({ iniciativas, onAbrirProjeto }) {
+function AtividadesView({ iniciativas, onAbrirProjeto, onToggleEtapa }) {
   const [modo,       setModo]       = useState("membro"); // "membro" | "projeto"
   const [filtroSta,  setFiltroSta]  = useState("");       // "" | "A fazer" | "Em andamento" | "Concluído" | "atrasado"
   const [filtroResp, setFiltroResp] = useState("");
@@ -962,7 +962,10 @@ function AtividadesView({ iniciativas, onAbrirProjeto }) {
         onMouseEnter=${ev=>ev.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,0.06)"}
         onMouseLeave=${ev=>ev.currentTarget.style.boxShadow="none"}>
         <!-- checkbox -->
-        <div style=${"width:14px;height:14px;border-radius:3px;border:2px solid;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:"+(e.status==="Concluído"?"#00BE8C":"#fff")+";border-color:"+(e.status==="Concluído"?"#00BE8C":"#CBD5E1")}>
+        <div onClick=${()=>onToggleEtapa(e.iniciativa_id, e.id)}
+          style=${"width:14px;height:14px;border-radius:3px;border:2px solid;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;background:"+(e.status==="Concluído"?"#00BE8C":"#fff")+";border-color:"+(e.status==="Concluído"?"#00BE8C":"#CBD5E1")}
+          onMouseEnter=${ev=>{ if(e.status!=="Concluído") ev.currentTarget.style.borderColor="#00BE8C"; }}
+          onMouseLeave=${ev=>{ if(e.status!=="Concluído") ev.currentTarget.style.borderColor="#CBD5E1"; }}>
           ${e.status==="Concluído"?html`<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`:null}
         </div>
         <!-- conteúdo -->
@@ -1605,7 +1608,19 @@ function App() {
       </div>
 
       <!-- ATIVIDADES VIEW (fora do div com padding do grid) -->
-      ${view==="atividades" ? html`<${AtividadesView} iniciativas=${iniciativas} onAbrirProjeto=${(id)=>{ setDetailId(id); setDetailTab("planejamento"); setView("lista"); }} />` : null}
+      ${view==="atividades" ? html`<${AtividadesView}
+        iniciativas=${iniciativas}
+        onAbrirProjeto=${(id)=>{ setDetailId(id); setDetailTab("planejamento"); setView("lista"); }}
+        onToggleEtapa=${async (iniciativa_id, etapa_id) => {
+          const ini = iniciativas.find(i=>i.id===iniciativa_id);
+          if (!ini) return;
+          const novas = (ini.planejamento||[]).map(e =>
+            e.id===etapa_id ? {...e, status: e.status==="Concluído" ? "A fazer" : "Concluído"} : e
+          );
+          await supa("iniciativas?id=eq."+iniciativa_id, {method:"PATCH", body:{planejamento:novas}});
+          setIniciativas(p=>p.map(i=>i.id===iniciativa_id ? {...i,planejamento:novas} : i));
+        }}
+      />` : null}
 
       <!-- DETAIL MODAL -->
       ${detail ? html`
