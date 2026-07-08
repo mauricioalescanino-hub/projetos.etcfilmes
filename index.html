@@ -883,7 +883,10 @@ Se a iniciativa é uma Tarefa simples, o plano inteiro deve caber em 7 dias. Nã
                     ${EtapaForm({vals:ef,setVals:setEf,onSave:()=>updateEtapa(e.id,ef),onCancel:()=>setEditingId(null),saveLabel:"Salvar"})}
                   ` : html`
                     <div style="display:flex;align-items:flex-start;gap:8px">
-                      <button onClick=${()=>updateEtapa(e.id,{status:e.status==="Concluído"?"A fazer":"Concluído"})}
+                      <button onClick=${()=>updateEtapa(e.id,{
+                          status: e.status==="Concluído" ? "A fazer" : "Concluído",
+                          data_conclusao: e.status==="Concluído" ? null : new Date().toISOString().split("T")[0],
+                        })}
                         style=${"width:16px;height:16px;border-radius:4px;border:2px solid;cursor:pointer;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;background:"+(e.status==="Concluído"?"#00BE8C":"#fff")+";border-color:"+(e.status==="Concluído"?"#00BE8C":"#CBD5E1")}>
                         ${e.status==="Concluído" ? html`<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>` : null}
                       </button>
@@ -896,7 +899,10 @@ Se a iniciativa é uma Tarefa simples, o plano inteiro deve caber em 7 dias. Nã
                           ${e.origem==="smart-ia" ? html`<span style="background:#F5F0FF;color:#6D28D9;border:1px solid #DDD6FE;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;font-family:'Plus Jakarta Sans',sans-serif">✨ IA</span>` : null}
                         </div>
                       </div>
-                      <select value=${e.status} onChange=${ev=>updateEtapa(e.id,{status:ev.target.value})}
+                      <select value=${e.status} onChange=${ev=>updateEtapa(e.id,{
+                          status: ev.target.value,
+                          data_conclusao: ev.target.value==="Concluído" ? new Date().toISOString().split("T")[0] : ev.target.value==="A fazer" ? null : e.data_conclusao||null,
+                        })}
                         style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;padding:2px 20px 2px 8px;border-radius:999px;border:1px solid;cursor:pointer;outline:none;background:"+st.bg+";color:"+st.color+";border-color:"+st.border}>
                         ${STATUS_ETAPA.map(s=>html`<option key=${s} value=${s}>${s}</option>`)}
                       </select>
@@ -953,17 +959,27 @@ function DesempenhoView({ iniciativas, onAbrirProjeto }) {
         else if (e.status==="Em andamento") m.emAndamento++;
         else                                m.aFazer++;
 
+        // atraso em atividades ABERTAS (ainda não concluídas)
         if (atrasada) {
           m.atrasadas++;
           m.diasAtraso += diasAtras;
           m.maxAtraso   = Math.max(m.maxAtraso, diasAtras);
         }
 
-        // entrega no prazo vs fora — só para concluídas com prazo
-        if (e.status==="Concluído" && prazoDate) {
-          // sem data de conclusão disponível, assumimos que foi entregue "hoje" para fins de cálculo
-          // flag vem do campo origem ou status apenas
-          m.entregasNoPrazo++; // simplificado: concluída = entregue
+        // atraso em atividades JÁ CONCLUÍDAS (entregue depois do prazo)
+        if (e.status==="Concluído" && prazoDate && e.data_conclusao) {
+          const dataConclusao = new Date(e.data_conclusao+"T00:00:00");
+          if (dataConclusao > prazoDate) {
+            const diasAtrasoEntrega = Math.ceil((dataConclusao - prazoDate)/86400000);
+            m.entregasForaPrazo++;
+            m.diasAtraso += diasAtrasoEntrega;
+            m.maxAtraso   = Math.max(m.maxAtraso, diasAtrasoEntrega);
+          } else {
+            m.entregasNoPrazo++;
+          }
+        } else if (e.status==="Concluído" && prazoDate && !e.data_conclusao) {
+          // concluída antes de termos o registro de data — assume no prazo
+          m.entregasNoPrazo++;
         }
 
         m.etapas.push({
@@ -1093,6 +1109,21 @@ function DesempenhoView({ iniciativas, onAbrirProjeto }) {
                         <p style="font-size:10px;color:#9193A0;margin:3px 0 0">${label}</p>
                       </div>`)}
                   </div>
+                  <!-- entregues fora do prazo (concluídas com atraso) -->
+                  ${m.entregasForaPrazo>0 ? html`
+                    <div style="background:#FFF5F5;border:1px solid #FECDD3;border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                      <span style="font-size:12px">⚠</span>
+                      <p style="font-size:11px;color:#F73A60;font-weight:600;margin:0;flex:1">
+                        ${m.entregasForaPrazo} entrega${m.entregasForaPrazo!==1?"s":""} concluída${m.entregasForaPrazo!==1?"s":""} fora do prazo
+                      </p>
+                      ${m.entregasNoPrazo>0 ? html`<span style="font-size:10px;color:#9193A0">${m.entregasNoPrazo} no prazo</span>` : null}
+                    </div>` : m.entregasNoPrazo>0 ? html`
+                    <div style="background:#EDFCF5;border:1px solid #A7F3D0;border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                      <span style="font-size:12px">✓</span>
+                      <p style="font-size:11px;color:#065F46;font-weight:600;margin:0">
+                        ${m.entregasNoPrazo} entrega${m.entregasNoPrazo!==1?"s":""} concluída${m.entregasNoPrazo!==1?"s":""} no prazo
+                      </p>
+                    </div>` : null}
 
                   <!-- barra de conclusão -->
                   <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
@@ -2239,8 +2270,13 @@ function App() {
         onToggleEtapa=${async (iniciativa_id, etapa_id) => {
           const ini = iniciativas.find(i=>i.id===iniciativa_id);
           if (!ini) return;
+          const hoje = new Date().toISOString().split("T")[0];
           const novas = (ini.planejamento||[]).map(e =>
-            e.id===etapa_id ? {...e, status: e.status==="Concluído" ? "A fazer" : "Concluído"} : e
+            e.id===etapa_id ? {
+              ...e,
+              status: e.status==="Concluído" ? "A fazer" : "Concluído",
+              data_conclusao: e.status==="Concluído" ? null : hoje,
+            } : e
           );
           await supa("iniciativas?id=eq."+iniciativa_id, {method:"PATCH", body:{planejamento:novas}});
           setIniciativas(p=>p.map(i=>i.id===iniciativa_id ? {...i,planejamento:novas} : i));
