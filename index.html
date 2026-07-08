@@ -532,13 +532,21 @@ Retorne EXATAMENTE neste formato JSON:
     {
       "nome": "Fase 1 — Nome da fase",
       "tarefas": [
-        { "titulo": "título da tarefa", "responsavel": "sugestão de perfil", "prazo_dias": 7, "descricao": "contexto breve" }
+        { "titulo": "título da tarefa", "responsavel": "sugestão de perfil", "prazo_dias": 3, "descricao": "contexto breve" }
       ]
     }
   ]
 }
 
-Use no máximo 3 fases. Cada fase com 2 a 5 tarefas. Prazos em dias a partir de hoje${temDeadline ? ", respeitando o deadline de "+dv.deadline : ""}. Seja específico e acionável.`;
+Use no máximo 3 fases. Cada fase com 2 a 5 tarefas. Seja específico e acionável.
+
+REGRAS DE PRAZO (siga rigorosamente):
+- Seja enxuto e realista — evite prazos conservadores demais
+- Tarefas simples (reunião, pesquisa, configuração): 1 a 3 dias (prazo_dias: 1, 2 ou 3)
+- Tarefas pontuais de implementação: 3 a 7 dias
+- Tarefas complexas ou de integração: 7 a 14 dias
+- Nunca ultrapasse 21 dias por tarefa individual
+- Se a iniciativa parece resolvível em dias, não coloque semanas. Se em semanas, não coloque meses.${temDeadline ? " O prazo total deve respeitar o deadline de "+dv.deadline+"." : ""}`;
 
 
       const r = await fetch("https://etc-filmes-proxy.vercel.app/api/anthropic", {
@@ -559,7 +567,7 @@ Use no máximo 3 fases. Cada fase com 2 a 5 tarefas. Prazos em dias a partir de 
       parsed.fases.forEach(fase => {
         fase.tarefas.forEach(t => {
           const d = new Date(hoje);
-          d.setDate(d.getDate() + (t.prazo_dias || 7));
+          d.setDate(d.getDate() + (t.prazo_dias || 3));
           etapasGeradas.push({
             id: Date.now().toString()+Math.random(),
             titulo: t.titulo, responsavel: t.responsavel||"",
