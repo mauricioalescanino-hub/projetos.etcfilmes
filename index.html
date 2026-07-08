@@ -464,6 +464,223 @@ function VisaoTab({ detail, patch, membros }) {
     </div>`;
 }
 
+/* ─── COMENTARIOS TAB ────────────────────────────────────── */
+function ComentariosTab({ detail, patch, membros }) {
+  const comentarios = detail.comentarios || [];
+  const [autor,    setAutor]    = useState("");
+  const [texto,    setTexto]    = useState("");
+  const [saving,   setSaving]   = useState(false);
+  const [expandido, setExpandido] = useState(null); // id de etapa expandida
+
+  const enviar = async () => {
+    if (!texto.trim() || !autor) return;
+    setSaving(true);
+    const novo = {
+      id:        Date.now().toString(),
+      autor,
+      texto:     texto.trim(),
+      data:      new Date().toISOString(),
+      tipo:      "iniciativa",
+    };
+    const novos = [...comentarios, novo];
+    await patch(detail.id, { comentarios: novos });
+    setTexto("");
+    setSaving(false);
+  };
+
+  const excluir = async (cid) => {
+    if (!confirm("Excluir este comentário?")) return;
+    await patch(detail.id, { comentarios: comentarios.filter(c=>c.id!==cid) });
+  };
+
+  const fmt = (iso) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit"})
+      + " " + d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  };
+
+  return html`
+    <div style="display:flex;flex-direction:column;gap:16px">
+
+      <!-- lista de comentários da iniciativa -->
+      ${comentarios.length===0 ? html`
+        <div style="text-align:center;padding:32px 0;color:#9193A0">
+          <p style="font-size:28px;margin-0 0 8px">💬</p>
+          <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:14px;color:#4A4A4A;margin:0 0 4px">Nenhum comentário ainda</p>
+          <p style="font-size:12px;margin:0">Seja o primeiro a comentar sobre esta iniciativa.</p>
+        </div>` : html`
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${comentarios.map(c=>html`
+            <div key=${c.id} style="display:flex;gap:10px;padding:12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px">
+              <div style="width:32px;height:32px;border-radius:50%;background:#E5F6FB;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:13px;color:#009FCF">${(c.autor||"?").charAt(0).toUpperCase()}</span>
+              </div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+                  <span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:12px;color:#1C1C1C">${c.autor}</span>
+                  <span style="font-size:10px;color:#C0C4CC">${fmt(c.data)}</span>
+                </div>
+                <p style="font-size:13px;color:#4A4A4A;margin:0;line-height:1.6;white-space:pre-wrap">${c.texto}</p>
+              </div>
+              <button onClick=${()=>excluir(c.id)}
+                style="background:none;border:none;cursor:pointer;color:#E8ECF1;padding:2px;flex-shrink:0;align-self:flex-start"
+                onMouseEnter=${e=>e.currentTarget.style.color="#F73A60"}
+                onMouseLeave=${e=>e.currentTarget.style.color="#E8ECF1"}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>
+              </button>
+            </div>`)}
+        </div>`}
+
+      <!-- form novo comentário -->
+      <div style="border-top:1px solid #F1F5F9;padding-top:14px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <div style="flex-shrink:0">
+            ${membros.length>0 ? html`
+              <select value=${autor} onChange=${e=>setAutor(e.target.value)}
+                style="padding:8px 24px 8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none;cursor:pointer;max-width:180px">
+                <option value="">Quem é você?</option>
+                ${membros.map(m=>html`<option key=${m.id} value=${m.nome}>${m.nome.split(" ")[0]} ${m.nome.split(" ")[1]||""}</option>`)}
+              </select>` : html`
+              <input type="text" value=${autor} onChange=${e=>setAutor(e.target.value)}
+                placeholder="Seu nome"
+                style="padding:8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none;width:140px" />`}
+          </div>
+          <div style="flex:1;display:flex;gap:8px">
+            <textarea value=${texto} onChange=${e=>setTexto(e.target.value)}
+              onKeyDown=${e=>{ if(e.key==="Enter"&&(e.metaKey||e.ctrlKey)) enviar(); }}
+              placeholder="Escreva um comentário... (Ctrl+Enter para enviar)"
+              rows="2"
+              style="flex:1;padding:8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;resize:none;font-family:'Inter',sans-serif;line-height:1.5"></textarea>
+            <button onClick=${enviar} disabled=${saving||!texto.trim()||!autor}
+              style=${"padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;align-self:flex-end;transition:all .15s;"+(texto.trim()&&autor?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
+              ${saving?"...":"Enviar"}
+            </button>
+          </div>
+        </div>
+        <p style="font-size:10px;color:#C0C4CC;margin:0">Ctrl+Enter para enviar rapidamente</p>
+      </div>
+
+      <!-- comentários por atividade -->
+      ${(()=>{
+        const etapasComComent = (detail.planejamento||[]).filter(e=>e.comentarios?.length>0);
+        if (!etapasComComent.length) return null;
+        return html`
+          <div style="border-top:1px solid #F1F5F9;padding-top:14px">
+            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:12px;color:#9193A0;text-transform:uppercase;letter-spacing:.08em;margin:0 0 10px">
+              Comentários em atividades
+            </p>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              ${etapasComComent.map(e=>html`
+                <div key=${e.id} style="border:1px solid #E8ECF1;border-radius:10px;overflow:hidden">
+                  <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#F7F9FC;cursor:pointer"
+                    onClick=${()=>setExpandido(expandido===e.id?null:e.id)}>
+                    <span style="font-size:11px;font-weight:600;color:#4A4A4A;flex:1">${e.titulo}</span>
+                    <span style="background:#F5BC50;color:#92400E;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px">${e.comentarios.length}</span>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9193A0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                      style=${"transition:transform .2s;transform:"+(expandido===e.id?"rotate(180deg)":"rotate(0deg)")}>
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </div>
+                  ${expandido===e.id ? html`
+                    <div style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+                      ${e.comentarios.map(c=>html`
+                        <div key=${c.id} style="display:flex;gap:8px">
+                          <div style="width:24px;height:24px;border-radius:50%;background:#E5F6FB;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                            <span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:10px;color:#009FCF">${(c.autor||"?").charAt(0).toUpperCase()}</span>
+                          </div>
+                          <div style="flex:1">
+                            <div style="display:flex;gap:6px;align-items:baseline;margin-bottom:2px">
+                              <span style="font-weight:700;font-size:11px;color:#1C1C1C">${c.autor}</span>
+                              <span style="font-size:9px;color:#C0C4CC">${fmt(c.data)}</span>
+                            </div>
+                            <p style="font-size:12px;color:#4A4A4A;margin:0;line-height:1.5">${c.texto}</p>
+                          </div>
+                        </div>`)}
+                    </div>` : null}
+                </div>`)}
+            </div>
+          </div>`;
+      })()}
+    </div>`;
+}
+
+/* ─── ETAPA COMENTARIOS ──────────────────────────────────── */
+function EtapaComentarios({ e, membros, onSave }) {
+  const comentarios = e.comentarios || [];
+  const [autor,  setAutor]  = useState("");
+  const [texto,  setTexto]  = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const fmt = (iso) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit"})
+      + " " + d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  };
+
+  const enviar = async () => {
+    if (!texto.trim() || !autor) return;
+    setSaving(true);
+    const novo = { id: Date.now().toString(), autor, texto: texto.trim(), data: new Date().toISOString() };
+    await onSave([...comentarios, novo]);
+    setTexto(""); setSaving(false);
+  };
+
+  const excluir = async (cid) => {
+    if (!confirm("Excluir comentário?")) return;
+    await onSave(comentarios.filter(c=>c.id!==cid));
+  };
+
+  return html`
+    <div style="margin-top:8px;padding:10px 12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;display:flex;flex-direction:column;gap:8px">
+      <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:10px;color:#D97706;text-transform:uppercase;letter-spacing:.08em;margin:0">
+        💬 Comentários desta atividade
+      </p>
+      ${comentarios.length>0 ? html`
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${comentarios.map(c=>html`
+            <div key=${c.id} style="display:flex;gap:7px">
+              <div style="width:22px;height:22px;border-radius:50%;background:#FEF9C3;border:1px solid #FDE68A;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:9px;color:#D97706">${(c.autor||"?").charAt(0).toUpperCase()}</span>
+              </div>
+              <div style="flex:1">
+                <div style="display:flex;gap:6px;align-items:baseline;margin-bottom:2px">
+                  <span style="font-weight:700;font-size:11px;color:#1C1C1C">${c.autor}</span>
+                  <span style="font-size:9px;color:#C0C4CC">${fmt(c.data)}</span>
+                  <button onClick=${()=>excluir(c.id)}
+                    style="background:none;border:none;cursor:pointer;color:#E8ECF1;padding:0;margin-left:auto"
+                    onMouseEnter=${ev=>ev.currentTarget.style.color="#F73A60"}
+                    onMouseLeave=${ev=>ev.currentTarget.style.color="#E8ECF1"}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>
+                  </button>
+                </div>
+                <p style="font-size:12px;color:#4A4A4A;margin:0;line-height:1.5">${c.texto}</p>
+              </div>
+            </div>`)}
+        </div>` : null}
+      <!-- form inline -->
+      <div style="display:flex;gap:6px">
+        ${membros.length>0 ? html`
+          <select value=${autor} onChange=${e=>setAutor(e.target.value)}
+            style="padding:6px 20px 6px 8px;background:#fff;border:1px solid #FDE68A;border-radius:8px;color:#1C1C1C;font-size:11px;outline:none;cursor:pointer;flex-shrink:0;max-width:130px">
+            <option value="">Quem é você?</option>
+            ${membros.map(m=>html`<option key=${m.id} value=${m.nome}>${m.nome.split(" ")[0]}</option>`)}
+          </select>` : html`
+          <input type="text" value=${autor} onChange=${ev=>setAutor(ev.target.value)}
+            placeholder="Seu nome"
+            style="padding:6px 8px;background:#fff;border:1px solid #FDE68A;border-radius:8px;font-size:11px;outline:none;width:100px;flex-shrink:0" />`}
+        <input type="text" value=${texto}
+          onChange=${ev=>setTexto(ev.target.value)}
+          onKeyDown=${ev=>{ if(ev.key==="Enter") enviar(); }}
+          placeholder="Comentar... (Enter para enviar)"
+          style="flex:1;padding:6px 8px;background:#fff;border:1px solid #FDE68A;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none" />
+        <button onClick=${enviar} disabled=${saving||!texto.trim()||!autor}
+          style=${"padding:6px 12px;border-radius:8px;font-size:11px;font-weight:700;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0;"+(texto.trim()&&autor?"background:#D97706;color:#fff":"background:#FEF9C3;color:#D97706;cursor:not-allowed")}>
+          ${saving?"...":"↩"}
+        </button>
+      </div>
+    </div>`;
+}
+
 /* ─── PLANEJAMENTO TAB ───────────────────────────────────── */
 function PlanejamentoTab({ detail, patch, membros }) {
   const etapas = detail.planejamento  || [];
@@ -936,6 +1153,15 @@ Se a iniciativa é uma Tarefa simples, o plano inteiro deve caber em 7 dias. Nã
                         ${STATUS_ETAPA.map(s=>html`<option key=${s} value=${s}>${s}</option>`)}
                       </select>
                       <div style="display:flex;gap:2px;flex-shrink:0">
+                        <!-- botão comentário -->
+                        <button onClick=${()=>setEditingId(editingId==="cmt_"+e.id?null:"cmt_"+e.id)}
+                          title="Comentários"
+                          style=${"background:none;border:none;cursor:pointer;padding:2px;position:relative;color:"+(e.comentarios?.length?"#F5BC50":"#C0C4CC")}
+                          onMouseEnter=${ev=>ev.currentTarget.style.color="#F5BC50"}
+                          onMouseLeave=${ev=>ev.currentTarget.style.color=(e.comentarios?.length?"#F5BC50":"#C0C4CC")}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                          ${e.comentarios?.length ? html`<span style="position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#F5BC50;border:1px solid #fff"></span>` : null}
+                        </button>
                         <button onClick=${()=>{ setEf({...e}); setEditingId(e.id); setAdding(false); }}
                           style="background:none;border:none;cursor:pointer;color:#C0C4CC;padding:2px"
                           onMouseEnter=${ev=>ev.currentTarget.style.color="#009FCF"}
@@ -950,6 +1176,11 @@ Se a iniciativa é uma Tarefa simples, o plano inteiro deve caber em 7 dias. Nã
                         </button>
                       </div>
                     </div>
+                    <!-- painel de comentários da etapa -->
+                    ${editingId==="cmt_"+e.id ? html`
+                      <${EtapaComentarios} e=${e} membros=${membros} onSave=${async (novos)=>{
+                        await savePlan(etapas.map(et=>et.id===e.id?{...et,comentarios:novos}:et));
+                      }} />` : null}
                   `}
                 </div>`; })}
           </div>
@@ -2393,6 +2624,7 @@ function App() {
                   ["iniciativa","Iniciativa"],
                   ["planejamento","Planejamento"],
                   ...((!detail.classificacao || detail.classificacao==="Projeto") ? [["visao","Declaração de Visão"]] : []),
+                  ["comentarios","Comentários"],
                 ].map(([tab,lbl])=>html`
                   <button key=${tab} onClick=${()=>setDetailTab(tab)}
                     style=${"padding:8px 16px;border-radius:8px 8px 0 0;font-size:12px;font-weight:600;cursor:pointer;border:none;background:none;font-family:'Plus Jakarta Sans',sans-serif;display:flex;align-items:center;gap:6px;"
@@ -2400,6 +2632,7 @@ function App() {
                     ${lbl}
                     ${tab==="planejamento"&&detail.planejamento?.length ? html`<span style="background:#009FCF;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:999px">${detail.planejamento.length}</span>` : null}
                     ${tab==="planejamento"&&detail.analise_smart ? html`<span class="rounded-full" style="width:6px;height:6px;background:#6D28D9;display:inline-block"></span>` : null}
+                    ${tab==="comentarios"&&detail.comentarios?.length ? html`<span style="background:#F5BC50;color:#92400E;font-size:9px;font-weight:700;padding:1px 5px;border-radius:999px">${detail.comentarios.length}</span>` : null}
                     ${tab==="visao"&&detail.declaracao_visao ? html`<span class="rounded-full" style="width:6px;height:6px;background:#00BE8C;display:inline-block"></span>` : null}
                   </button>`)}
               </div>
@@ -2579,7 +2812,7 @@ function App() {
                       ${IconX(12)} Excluir iniciativa
                     </button>
                   </div>
-                </div>` : detailTab==="planejamento" ? html`<${PlanejamentoTab} detail=${detail} patch=${patch} membros=${membros} />` : html`<${VisaoTab} detail=${detail} patch=${patch} membros=${membros} />`}
+                </div>` : detailTab==="planejamento" ? html`<${PlanejamentoTab} detail=${detail} patch=${patch} membros=${membros} />` : detailTab==="comentarios" ? html`<${ComentariosTab} detail=${detail} patch=${patch} membros=${membros} />` : html`<${VisaoTab} detail=${detail} patch=${patch} membros=${membros} />`}
             </div>
           </div>
         </div>` : null}
