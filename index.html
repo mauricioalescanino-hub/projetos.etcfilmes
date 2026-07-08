@@ -516,7 +516,8 @@ Problema: ${detail.problema}
 Impacto: ${detail.impacto}
 Tempo manual atual: ${detail.tempo_manual}
 Tipo: ${detail.tipo}
-Classificação: ${detail.classificacao}
+Classificação: ${detail.classificacao} — TETO TOTAL: ${detail.classificacao==="Tarefa"?"7 dias":detail.classificacao==="Ideia"?"14 dias":detail.complexidade<=2?"14 dias":detail.complexidade===3?"21 dias":detail.complexidade===4?"30 dias":"45 dias"}
+Complexidade: ${detail.complexidade}/5
 OKR: ${detail.okr}
 ${blocoVisao}
 Retorne EXATAMENTE neste formato JSON:
@@ -541,15 +542,31 @@ Retorne EXATAMENTE neste formato JSON:
 Use no máximo 3 fases. Cada fase com 2 a 5 tarefas. Seja específico e acionável.
 
 REGRAS DE PRAZO (siga rigorosamente):
-- As fases são SEQUENCIAIS: Fase 2 só começa depois que Fase 1 termina, Fase 3 só começa depois que Fase 2 termina
-- Os prazos devem aumentar progressivamente: prazo_dias da Fase 1 < prazo_dias da Fase 2 < prazo_dias da Fase 3
-- Dentro de cada fase, os prazos também devem ser crescentes entre as tarefas
-- Seja enxuto e realista — evite prazos conservadores demais
-- Tarefas simples (reunião, pesquisa, configuração): 1 a 3 dias
-- Tarefas pontuais de implementação: 3 a 7 dias
-- Tarefas complexas ou de integração: 7 a 14 dias
-- Nunca ultrapasse 21 dias por tarefa individual
-- Se a iniciativa parece resolvível em dias, não coloque semanas. Se em semanas, não coloque meses.${temDeadline ? " O prazo total deve respeitar o deadline de "+dv.deadline+"." : ""}`;
+
+1. TETO TOTAL DO PROJETO por classificação e complexidade:
+   - Tarefa (qualquer complexidade): prazo total máximo = 7 dias
+   - Ideia (qualquer complexidade): prazo total máximo = 14 dias
+   - Projeto complexidade 1-2: prazo total máximo = 14 dias
+   - Projeto complexidade 3: prazo total máximo = 21 dias
+   - Projeto complexidade 4: prazo total máximo = 30 dias
+   - Projeto complexidade 5: prazo total máximo = 45 dias
+   O prazo_dias da ÚLTIMA tarefa do projeto NÃO PODE ultrapassar esse teto.
+
+2. SEQUENCIALIDADE OBRIGATÓRIA:
+   - Fase 2 começa depois que Fase 1 termina; Fase 3 depois da Fase 2
+   - Dentro de cada fase, prazos são crescentes
+   - Nunca coloque uma fase posterior com prazo menor que uma fase anterior
+
+3. ESCALA POR TIPO DE TAREFA (dentro do teto):
+   - Reunião, pesquisa, definição: 1 a 2 dias
+   - Configuração, setup, script simples: 2 a 4 dias
+   - Implementação, desenvolvimento: 3 a 7 dias
+   - Integração, teste, validação: 3 a 5 dias
+   - Treinamento, documentação: 1 a 3 dias
+
+4. NUNCA ultrapasse 10 dias por tarefa individual, independente do tipo.
+
+Se a iniciativa é uma Tarefa simples, o plano inteiro deve caber em 7 dias. Não seja conservador.${temDeadline ? " O prazo total deve respeitar o deadline de "+dv.deadline+"." : ""}`;
 
 
       const r = await fetch("https://etc-filmes-proxy.vercel.app/api/anthropic", {
