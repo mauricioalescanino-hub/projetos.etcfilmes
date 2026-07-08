@@ -1470,7 +1470,7 @@ function App() {
       </div>
 
       <!-- GRID -->
-      <div class="flex-1 overflow-auto px-6 py-6">
+      <div class="flex-1 overflow-auto px-6 py-6" style=${view==="atividades"?"display:none":""}>
         ${view==="lista" ? html`
           ${(()=>{
             /* ── sem agrupamento ── */
@@ -1602,9 +1602,10 @@ function App() {
                 </div>`;
             })()}
           </div>`}
-
-        ${view==="atividades" ? html`<${AtividadesView} iniciativas=${iniciativas} onAbrirProjeto=${(id)=>{ setDetailId(id); setDetailTab("planejamento"); setView("lista"); }} />` : null}
       </div>
+
+      <!-- ATIVIDADES VIEW (fora do div com padding do grid) -->
+      ${view==="atividades" ? html`<${AtividadesView} iniciativas=${iniciativas} onAbrirProjeto=${(id)=>{ setDetailId(id); setDetailTab("planejamento"); setView("lista"); }} />` : null}
 
       <!-- DETAIL MODAL -->
       ${detail ? html`
