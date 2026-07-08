@@ -540,7 +540,7 @@ function ComentariosTab({ detail, patch, membros }) {
                       style="width:100%;padding:8px 10px;background:#fff;border:1px solid #009FCF;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;resize:none;font-family:'Inter',sans-serif;box-sizing:border-box"></textarea>
                     <div style="display:flex;gap:6px">
                       <button onClick=${()=>salvarEdicao(c.id)} disabled=${saving||!editTexto.trim()}
-                        style=${"padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;"+(editTexto.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
+                        style=${"padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;"+(editTexto.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC")}>
                         ${saving?"Salvando...":"Salvar"}
                       </button>
                       <button onClick=${()=>{ setEditId(null); setEditTexto(""); }}
@@ -583,7 +583,7 @@ function ComentariosTab({ detail, patch, membros }) {
               rows="2"
               style="flex:1;padding:8px 10px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;resize:none;font-family:'Inter',sans-serif;line-height:1.5"></textarea>
             <button onClick=${enviar} disabled=${saving||!texto.trim()||!autor}
-              style=${"padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;align-self:flex-end;transition:all .15s;"+(texto.trim()&&autor?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
+              style=${"padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;align-self:flex-end;transition:all .15s;"+(texto.trim()&&autor?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC")}>
               ${saving?"...":"Enviar"}
             </button>
           </div>
@@ -739,7 +739,7 @@ function EtapaComentarios({ e, membros, onSave }) {
           placeholder="Comentar... (Enter para enviar)"
           style="flex:1;padding:6px 8px;background:#fff;border:1px solid #FDE68A;border-radius:8px;color:#1C1C1C;font-size:12px;outline:none" />
         <button onClick=${enviar} disabled=${saving||!texto.trim()||!autor}
-          style=${"padding:6px 12px;border-radius:8px;font-size:11px;font-weight:700;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0;"+(texto.trim()&&autor?"background:#D97706;color:#fff":"background:#FEF9C3;color:#D97706;cursor:not-allowed")}>
+          style=${"padding:6px 12px;border-radius:8px;font-size:11px;font-weight:700;border:none;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0;"+(texto.trim()&&autor?"background:#D97706;color:#fff":"background:#FEF9C3;color:#D97706")}>
           ${saving?"...":"↩"}
         </button>
       </div>
