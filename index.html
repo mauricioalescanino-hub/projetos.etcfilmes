@@ -886,6 +886,256 @@ Use no máximo 3 fases. Cada fase com 2 a 5 tarefas. Prazos em dias a partir de 
     </div>`;
 }
 
+/* ─── ATIVIDADES VIEW ────────────────────────────────────── */
+function AtividadesView({ iniciativas, onAbrirProjeto }) {
+  const [modo,       setModo]       = useState("membro"); // "membro" | "projeto"
+  const [filtroSta,  setFiltroSta]  = useState("");       // "" | "A fazer" | "Em andamento" | "Concluído" | "atrasado"
+  const [filtroResp, setFiltroResp] = useState("");
+
+  /* coletar todas as etapas de todas as iniciativas que têm planejamento */
+  const todasEtapas = useMemo(() => {
+    const lista = [];
+    iniciativas.forEach(ini => {
+      if (!ini.planejamento?.length) return;
+      const nomeProj = ini.declaracao_visao?.titulo?.trim() || ini.problema?.substring(0,60) || "#"+String(ini.num).padStart(2,"0");
+      ini.planejamento.forEach(e => {
+        const hoje = new Date(); hoje.setHours(0,0,0,0);
+        const prazoDate = e.prazo ? new Date(e.prazo+"T00:00:00") : null;
+        const atrasado  = prazoDate && e.status !== "Concluído" && prazoDate < hoje;
+        const proximosDias = prazoDate ? Math.ceil((prazoDate - hoje) / 86400000) : null;
+        lista.push({
+          ...e,
+          iniciativa_id:  ini.id,
+          iniciativa_num: ini.num,
+          nome_projeto:   nomeProj,
+          area:           ini.area,
+          atrasado,
+          prazoDate,
+          proximosDias,
+        });
+      });
+    });
+    return lista;
+  }, [iniciativas]);
+
+  /* responsáveis únicos */
+  const responsaveis = useMemo(() =>
+    [...new Set(todasEtapas.map(e=>e.responsavel).filter(Boolean))].sort()
+  , [todasEtapas]);
+
+  /* aplicar filtros */
+  const filtradas = useMemo(() => todasEtapas.filter(e => {
+    if (filtroResp && e.responsavel !== filtroResp) return false;
+    if (filtroSta === "atrasado") return e.atrasado;
+    if (filtroSta && e.status !== filtroSta) return false;
+    return true;
+  }), [todasEtapas, filtroSta, filtroResp]);
+
+  /* estatísticas */
+  const stats = useMemo(() => ({
+    total:      todasEtapas.length,
+    concluidas: todasEtapas.filter(e=>e.status==="Concluído").length,
+    andamento:  todasEtapas.filter(e=>e.status==="Em andamento").length,
+    atrasadas:  todasEtapas.filter(e=>e.atrasado).length,
+    semPrazo:   todasEtapas.filter(e=>!e.prazo && e.status!=="Concluído").length,
+  }), [todasEtapas]);
+
+  const prazoLabel = (e) => {
+    if (!e.prazo) return html`<span style="color:#C0C4CC;font-size:11px">Sem prazo</span>`;
+    const d = new Date(e.prazo+"T00:00:00").toLocaleDateString("pt-BR");
+    if (e.status==="Concluído") return html`<span style="color:#00BE8C;font-size:11px">✓ ${d}</span>`;
+    if (e.atrasado) return html`<span style="color:#F73A60;font-size:11px;font-weight:700">⚠ ${d} (atrasado)</span>`;
+    if (e.proximosDias<=3) return html`<span style="color:#D97706;font-size:11px;font-weight:600">⏰ ${d} (${e.proximosDias}d)</span>`;
+    return html`<span style="color:#9193A0;font-size:11px">📅 ${d}</span>`;
+  };
+
+  const STA_E = {
+    "A fazer":      {bg:"#F1F5F9",color:"#475569",border:"#CBD5E1"},
+    "Em andamento": {bg:"#FFFBEB",color:"#D97706",border:"#FDE68A"},
+    "Concluído":    {bg:"#EDFCF5",color:"#065F46",border:"#A7F3D0"},
+  };
+
+  const EtapaRow = ({e}) => {
+    const st = STA_E[e.status]||STA_E["A fazer"];
+    return html`
+      <div style=${"display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border:1px solid "+(e.atrasado&&e.status!=="Concluído"?"#FECDD3":"#E8ECF1")+";border-left:3px solid "+(e.atrasado&&e.status!=="Concluído"?"#F73A60":e.status==="Concluído"?"#00BE8C":"#E8ECF1")+";border-radius:8px;transition:box-shadow .15s"}
+        onMouseEnter=${ev=>ev.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,0.06)"}
+        onMouseLeave=${ev=>ev.currentTarget.style.boxShadow="none"}>
+        <!-- checkbox -->
+        <div style=${"width:14px;height:14px;border-radius:3px;border:2px solid;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:"+(e.status==="Concluído"?"#00BE8C":"#fff")+";border-color:"+(e.status==="Concluído"?"#00BE8C":"#CBD5E1")}>
+          ${e.status==="Concluído"?html`<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`:null}
+        </div>
+        <!-- conteúdo -->
+        <div style="flex:1;min-width:0">
+          <p style=${"font-size:12px;font-weight:600;color:"+(e.status==="Concluído"?"#9193A0":"#1C1C1C")+";text-decoration:"+(e.status==="Concluído"?"line-through":"none")+";margin:0 0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}>${e.titulo}</p>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            ${prazoLabel(e)}
+            ${e.origem==="smart-ia"?html`<span style="background:#F5F0FF;color:#6D28D9;border:1px solid #DDD6FE;font-size:9px;font-weight:700;padding:1px 5px;border-radius:999px">✨ IA</span>`:null}
+          </div>
+        </div>
+        <!-- responsável (modo projeto) -->
+        ${modo==="projeto"&&e.responsavel?html`
+          <span style="font-size:11px;color:#4A4A4A;background:#F7F9FC;border:1px solid #E8ECF1;padding:2px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0">👤 ${e.responsavel}</span>`:null}
+        <!-- status pill -->
+        <span style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid;white-space:nowrap;flex-shrink:0;background:"+st.bg+";color:"+st.color+";border-color:"+st.border}>
+          ${e.status}
+        </span>
+        <!-- link projeto -->
+        <button onClick=${()=>onAbrirProjeto(e.iniciativa_id)}
+          title="Abrir projeto"
+          style="background:none;border:none;cursor:pointer;color:#C0C4CC;padding:2px;flex-shrink:0"
+          onMouseEnter=${ev=>ev.currentTarget.style.color="#009FCF"}
+          onMouseLeave=${ev=>ev.currentTarget.style.color="#C0C4CC"}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </button>
+      </div>`;
+  };
+
+  /* agrupar por membro */
+  const gruposMembro = useMemo(() => {
+    const map = {};
+    filtradas.forEach(e => {
+      const key = e.responsavel || "Sem responsável";
+      if (!map[key]) map[key] = [];
+      map[key].push(e);
+    });
+    return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([nome,etapas])=>({nome,etapas}));
+  }, [filtradas]);
+
+  /* agrupar por projeto */
+  const gruposProjeto = useMemo(() => {
+    const map = {};
+    filtradas.forEach(e => {
+      const key = e.nome_projeto;
+      if (!map[key]) map[key] = {nome:key, id:e.iniciativa_id, area:e.area, etapas:[]};
+      map[key].etapas.push(e);
+    });
+    return Object.values(map).sort((a,b)=>a.nome.localeCompare(b.nome));
+  }, [filtradas]);
+
+  const pct = (etapas) => {
+    if (!etapas.length) return 0;
+    return Math.round(etapas.filter(e=>e.status==="Concluído").length/etapas.length*100);
+  };
+
+  const GrupoHeader = ({nome, etapas, sub}) => {
+    const p = pct(etapas);
+    const atrasadasG = etapas.filter(e=>e.atrasado).length;
+    return html`
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:10px;border-bottom:2px solid #F1F5F9">
+        <h3 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:14px;color:#1C1C1C;margin:0">${nome}</h3>
+        ${sub?html`<span style="font-size:11px;color:#9193A0;background:#F1F5F9;padding:2px 7px;border-radius:6px">${sub}</span>`:null}
+        <span style="font-size:11px;color:#9193A0">${etapas.length} atividade${etapas.length!==1?"s":""}</span>
+        ${atrasadasG?html`<span style="font-size:10px;font-weight:700;color:#F73A60;background:#FEE8ED;border:1px solid #FECDD3;padding:2px 7px;border-radius:999px">${atrasadasG} atrasada${atrasadasG!==1?"s":""}</span>`:null}
+        <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+          <span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;color:#009FCF">${p}%</span>
+          <div style="width:60px;height:5px;background:#F1F5F9;border-radius:999px;overflow:hidden">
+            <div style=${"height:100%;background:#009FCF;border-radius:999px;width:"+p+"%"}></div>
+          </div>
+        </div>
+      </div>`;
+  };
+
+  return html`
+    <div style="display:flex;flex-direction:column;gap:0">
+
+      <!-- sub-header da view -->
+      <div style="background:#fff;border-bottom:1px solid #E8ECF1;padding:12px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+
+        <!-- stat cards inline -->
+        <div class="stat-card" style="background:#FFF4ED"><span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:16px;color:#C2410C">${stats.total}</span><span style="font-size:11px;color:#9193A0">Total</span></div>
+        <div class="stat-card" style="background:#EDFCF5"><span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:16px;color:#065F46">${stats.concluidas}</span><span style="font-size:11px;color:#9193A0">Concluídas</span></div>
+        <div class="stat-card" style="background:#FFFBEB"><span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:16px;color:#D97706">${stats.andamento}</span><span style="font-size:11px;color:#9193A0">Em andamento</span></div>
+        <div class="stat-card" style="background:#FEE8ED"><span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:16px;color:#F73A60">${stats.atrasadas}</span><span style="font-size:11px;color:#9193A0">Atrasadas</span></div>
+        ${stats.semPrazo?html`<div class="stat-card"><span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:16px;color:#9193A0">${stats.semPrazo}</span><span style="font-size:11px;color:#9193A0">Sem prazo</span></div>`:null}
+
+        <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <!-- filtro status -->
+          <select value=${filtroSta} onChange=${e=>setFiltroSta(e.target.value)}
+            style="background:#fff;border:1px solid #E8ECF1;color:#4A4A4A;font-size:12px;border-radius:8px;padding:6px 26px 6px 10px;outline:none;cursor:pointer">
+            <option value="">Todos os status</option>
+            <option value="A fazer">A fazer</option>
+            <option value="Em andamento">Em andamento</option>
+            <option value="Concluído">Concluído</option>
+            <option value="atrasado">⚠ Atrasadas</option>
+          </select>
+          <!-- filtro responsável -->
+          ${responsaveis.length ? html`
+            <select value=${filtroResp} onChange=${e=>setFiltroResp(e.target.value)}
+              style="background:#fff;border:1px solid #E8ECF1;color:#4A4A4A;font-size:12px;border-radius:8px;padding:6px 26px 6px 10px;outline:none;cursor:pointer">
+              <option value="">Todos os membros</option>
+              ${responsaveis.map(r=>html`<option key=${r} value=${r}>${r}</option>`)}
+            </select>` : null}
+          <!-- toggle modo -->
+          <div style="display:flex;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;overflow:hidden">
+            ${[["membro","👤 Por Membro"],["projeto","📁 Por Projeto"]].map(([m,lbl])=>html`
+              <button key=${m} onClick=${()=>setModo(m)}
+                style=${"padding:6px 12px;border:none;cursor:pointer;font-size:11px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(modo===m?"background:#009FCF;color:#fff":"background:transparent;color:#9193A0")}>
+                ${lbl}
+              </button>`)}
+          </div>
+        </div>
+      </div>
+
+      <!-- conteúdo -->
+      <div style="flex:1;overflow-y:auto;padding:24px">
+        ${todasEtapas.length===0 ? html`
+          <div style="text-align:center;padding:64px 0;color:#9193A0">
+            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:16px;color:#4A4A4A;margin-bottom:6px">Nenhuma atividade cadastrada</p>
+            <p style="font-size:13px">Abra um projeto, vá na aba Planejamento e adicione etapas.</p>
+          </div>` : filtradas.length===0 ? html`
+          <div style="text-align:center;padding:48px 0;color:#9193A0">
+            <p style="font-size:13px">Nenhuma atividade com os filtros selecionados.</p>
+          </div>` : modo==="membro" ? html`
+          <!-- MODO MEMBRO -->
+          <div style="display:flex;flex-direction:column;gap:28px">
+            ${gruposMembro.map(g=>html`
+              <div key=${g.nome}>
+                ${GrupoHeader({nome:g.nome, etapas:g.etapas})}
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  ${g.etapas
+                    .sort((a,b)=>{
+                      if (a.atrasado&&!b.atrasado) return -1;
+                      if (!a.atrasado&&b.atrasado) return 1;
+                      if (a.prazoDate&&b.prazoDate) return a.prazoDate-b.prazoDate;
+                      if (a.prazoDate) return -1;
+                      if (b.prazoDate) return 1;
+                      return 0;
+                    })
+                    .map(e=>html`
+                    <div key=${e.id}>
+                      <p style="font-size:10px;color:#9193A0;font-weight:600;margin:0 0 3px;letter-spacing:.04em">
+                        📁 ${e.nome_projeto}
+                        <span style="color:#C0C4CC;font-weight:400"> · ${e.fase||"Fase 1"}</span>
+                      </p>
+                      ${EtapaRow({e})}
+                    </div>`)}
+                </div>
+              </div>`)}
+          </div>` : html`
+          <!-- MODO PROJETO -->
+          <div style="display:flex;flex-direction:column;gap:28px">
+            ${gruposProjeto.map(g=>html`
+              <div key=${g.nome}>
+                ${GrupoHeader({nome:g.nome, etapas:g.etapas, sub:g.area})}
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  ${g.etapas
+                    .sort((a,b)=>{
+                      if (a.atrasado&&!b.atrasado) return -1;
+                      if (!a.atrasado&&b.atrasado) return 1;
+                      if (a.prazoDate&&b.prazoDate) return a.prazoDate-b.prazoDate;
+                      if (a.prazoDate) return -1;
+                      if (b.prazoDate) return 1;
+                      return 0;
+                    })
+                    .map(e=>html`${EtapaRow({e})}`)}
+                </div>
+              </div>`)}
+          </div>`}
+      </div>
+    </div>`;
+}
+
 function App() {
   const [iniciativas, setIniciativas] = useState([]);
   const [clusters,    setClusters]    = useState([]);
@@ -1153,6 +1403,10 @@ function App() {
           </button>
           <button class=${"btn-nav "+(view==="lista"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("lista")}>${IconList(12)} Lista</button>
           <button class=${"btn-nav "+(view==="clusters"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("clusters")}>${IconLayers(12)} Clusters</button>
+          <button class=${"btn-nav "+(view==="atividades"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("atividades")}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Atividades
+          </button>
           <button class="btn-nav btn-nav-default" onClick=${()=>setCModal(true)}>${IconPlus(12)} Cluster</button>
           <button class="btn-nav btn-nav-default" onClick=${()=>{ setNewSq({nome:"",membros:""}); setSqModal(true); }}>${IconPlus(12)} Squad</button>
           <button class="btn-nav btn-nav-default" onClick=${exportCSV}>${IconDL(12)} CSV</button>
@@ -1348,6 +1602,8 @@ function App() {
                 </div>`;
             })()}
           </div>`}
+
+        ${view==="atividades" ? html`<${AtividadesView} iniciativas=${iniciativas} onAbrirProjeto=${(id)=>{ setDetailId(id); setDetailTab("planejamento"); setView("lista"); }} />` : null}
       </div>
 
       <!-- DETAIL MODAL -->
