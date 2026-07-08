@@ -902,6 +902,215 @@ REGRAS DE PRAZO (siga rigorosamente):
     </div>`;
 }
 
+/* ─── GANTT VIEW ─────────────────────────────────────────── */
+function GanttView({ iniciativas, onAbrirProjeto }) {
+  const [zoom, setZoom]     = useState("semanas"); // "semanas" | "meses"
+  const [hoje] = useState(()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; });
+
+  /* projetos com atividades que têm prazo */
+  const projetos = useMemo(()=>{
+    return iniciativas
+      .filter(i => i.planejamento?.some(e=>e.prazo))
+      .map(i => {
+        const nome = i.declaracao_visao?.titulo?.trim() || i.problema?.substring(0,55) || "#"+String(i.num).padStart(2,"0");
+        const etapas = (i.planejamento||[])
+          .filter(e=>e.prazo)
+          .map(e=>({
+            ...e,
+            prazoDate: new Date(e.prazo+"T00:00:00"),
+          }))
+          .sort((a,b)=>a.prazoDate-b.prazoDate);
+        const inicio = etapas[0]?.prazoDate || hoje;
+        const fim    = etapas[etapas.length-1]?.prazoDate || hoje;
+        return { id:i.id, nome, area:i.area, etapas, inicio, fim, num:i.num };
+      })
+      .sort((a,b)=>a.inicio-b.inicio);
+  },[iniciativas]);
+
+  /* intervalo global da timeline */
+  const { tStart, tEnd, colunas } = useMemo(()=>{
+    if (!projetos.length) return { tStart:hoje, tEnd:hoje, colunas:[] };
+    const allDates = projetos.flatMap(p=>p.etapas.map(e=>e.prazoDate));
+    const minD = new Date(Math.min(...allDates, hoje));
+    const maxD = new Date(Math.max(...allDates));
+
+    let tStart = new Date(minD); tStart.setDate(1);
+    let tEnd   = new Date(maxD); tEnd.setDate(1); tEnd.setMonth(tEnd.getMonth()+2);
+
+    const cols = [];
+    if (zoom==="semanas") {
+      // semanas: domingo a sábado
+      const cur = new Date(tStart);
+      cur.setDate(cur.getDate() - cur.getDay()); // ir para domingo
+      while (cur <= tEnd) {
+        cols.push(new Date(cur));
+        cur.setDate(cur.getDate()+7);
+      }
+    } else {
+      // meses
+      const cur = new Date(tStart);
+      while (cur <= tEnd) {
+        cols.push(new Date(cur));
+        cur.setMonth(cur.getMonth()+1);
+      }
+    }
+    return { tStart, tEnd, colunas:cols };
+  },[projetos, zoom, hoje]);
+
+  const totalCols  = colunas.length;
+  const colW       = zoom==="semanas" ? 56 : 80; // px por coluna
+  const rowH       = 32;
+  const labelW     = 220;
+  const timelineW  = totalCols * colW;
+
+  /* posição de uma data na timeline (0..1) */
+  const pos = (date) => {
+    const d = new Date(date); d.setHours(0,0,0,0);
+    const total = tEnd - tStart;
+    if (total<=0) return 0;
+    return Math.max(0, Math.min(1, (d - tStart) / total));
+  };
+
+  /* coluna onde cai "hoje" */
+  const hojePos = pos(hoje);
+
+  const STA_COLOR = {
+    "Concluído":    "#00BE8C",
+    "Em andamento": "#F5BC50",
+    "A fazer":      "#C0C4CC",
+  };
+  const AREA_CLR = ["#009FCF","#00BE8C","#F73A60","#F5BC50","#8B5CF6","#EC4899","#F97316","#14B8A6"];
+  const areaColor = (area) => AREA_CLR[["Atendimento","Producao","Comercial","Financeiro","RH","CL","TI","Marketing"].indexOf(area)%AREA_CLR.length] || "#009FCF";
+
+  if (!projetos.length) return html`
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:64px 0;color:#9193A0;background:#F7F9FC;flex:1">
+      <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:16px;color:#4A4A4A;margin-bottom:6px">Nenhum projeto com atividades e prazos</p>
+      <p style="font-size:13px">Abra um projeto, vá na aba Planejamento, adicione etapas com prazo definido.</p>
+    </div>`;
+
+  return html`
+    <div style="display:flex;flex-direction:column;flex:1;background:#F7F9FC;overflow:hidden">
+
+      <!-- sub-header -->
+      <div style="background:#fff;border-bottom:1px solid #E8ECF1;padding:12px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0">
+          Evolução de Projetos — ${projetos.length} projeto${projetos.length!==1?"s":""}
+        </p>
+        <div style="display:flex;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;overflow:hidden;margin-left:auto">
+          ${[["semanas","Semanas"],["meses","Meses"]].map(([z,lbl])=>html`
+            <button key=${z} onClick=${()=>setZoom(z)}
+              style=${"padding:6px 14px;border:none;cursor:pointer;font-size:11px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(zoom===z?"background:#009FCF;color:#fff":"background:transparent;color:#9193A0")}>
+              ${lbl}
+            </button>`)}
+        </div>
+        <!-- legenda -->
+        <div style="display:flex;gap:12px;align-items:center">
+          ${[["Concluído","#00BE8C"],["Em andamento","#F5BC50"],["A fazer","#C0C4CC"]].map(([l,c])=>html`
+            <div key=${l} style="display:flex;align-items:center;gap:5px">
+              <span style=${"width:10px;height:10px;border-radius:2px;background:"+c+";display:inline-block"}></span>
+              <span style="font-size:11px;color:#9193A0">${l}</span>
+            </div>`)}
+          <div style="display:flex;align-items:center;gap:5px">
+            <span style="width:2px;height:14px;background:#F73A60;display:inline-block;border-radius:1px"></span>
+            <span style="font-size:11px;color:#9193A0">Hoje</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- gantt body -->
+      <div style="flex:1;overflow:auto">
+        <div style=${"display:flex;min-width:"+(labelW+timelineW)+"px"}>
+
+          <!-- coluna de labels fixa (sticky via JS scroll sync) -->
+          <div style=${"flex-shrink:0;width:"+labelW+"px;background:#fff;border-right:1px solid #E8ECF1;z-index:2"}>
+            <!-- header vazio alinhado com o header da timeline -->
+            <div style=${"height:40px;border-bottom:2px solid #E8ECF1;background:#F7F9FC"}></div>
+            <!-- labels dos projetos -->
+            ${projetos.map(p=>html`
+              <div key=${p.id}>
+                <!-- linha do projeto -->
+                <div style=${"height:"+rowH+"px;display:flex;align-items:center;padding:0 12px;background:#F7F9FC;border-bottom:1px solid #E8ECF1;gap:6px;cursor:pointer"}
+                  onClick=${()=>onAbrirProjeto(p.id)}
+                  onMouseEnter=${e=>e.currentTarget.style.background="#EFF8FF"}
+                  onMouseLeave=${e=>e.currentTarget.style.background="#F7F9FC"}>
+                  <span style=${"width:8px;height:8px;border-radius:50%;background:"+areaColor(p.area)+";display:inline-block;flex-shrink:0"}></span>
+                  <span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:11px;color:#1C1C1C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1">${p.nome}</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C0C4CC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </div>
+                <!-- linhas de etapas -->
+                ${p.etapas.map(e=>html`
+                  <div key=${e.id} style=${"height:"+rowH+"px;display:flex;align-items:center;padding:0 12px 0 24px;border-bottom:1px solid #F1F5F9;background:#fff"}>
+                    <span style=${"font-size:10px;color:"+(e.status==="Concluído"?"#9193A0":"#4A4A4A")+";white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:"+(e.status==="Concluído"?"line-through":"none")}>${e.titulo}</span>
+                  </div>`)}
+              </div>`)}
+          </div>
+
+          <!-- área da timeline com scroll horizontal -->
+          <div style=${"flex:1;overflow-x:auto;position:relative"}>
+            <!-- header de colunas de tempo -->
+            <div style=${"display:flex;height:40px;border-bottom:2px solid #E8ECF1;background:#F7F9FC;position:sticky;top:0;z-index:1"}>
+              ${colunas.map((c,idx)=>html`
+                <div key=${idx} style=${"flex-shrink:0;width:"+colW+"px;border-right:1px solid #E8ECF1;display:flex;align-items:center;justify-content:center;padding:0 2px"}>
+                  <span style="font-size:10px;font-weight:600;color:#9193A0;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">
+                    ${zoom==="semanas"
+                      ? c.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})
+                      : c.toLocaleDateString("pt-BR",{month:"short",year:"2-digit"})}
+                  </span>
+                </div>`)}
+            </div>
+
+            <!-- linhas das atividades com barras -->
+            <div style="position:relative">
+              ${projetos.map(p=>html`
+                <div key=${p.id}>
+                  <!-- linha do projeto (barra de duração total) -->
+                  <div style=${"height:"+rowH+"px;border-bottom:1px solid #E8ECF1;background:#F7F9FC;position:relative;display:flex;align-items:center"}>
+                    ${(()=>{
+                      const left  = pos(p.inicio)*timelineW;
+                      const right = pos(p.fim)*timelineW;
+                      const w     = Math.max(right-left, 6);
+                      const done  = p.etapas.filter(e=>e.status==="Concluído").length;
+                      const pct   = p.etapas.length ? Math.round(done/p.etapas.length*100) : 0;
+                      const ac    = areaColor(p.area);
+                      return html`
+                        <div style=${"position:absolute;left:"+left+"px;width:"+w+"px;height:16px;border-radius:4px;background:"+ac+"22;border:1px solid "+ac+";overflow:hidden;display:flex;align-items:center"}>
+                          <div style=${"height:100%;background:"+ac+"66;width:"+pct+"%"}></div>
+                          <span style=${"position:absolute;left:6px;font-size:9px;font-weight:700;color:"+ac+";font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap"}>${pct}%</span>
+                        </div>`;
+                    })()}
+                    <!-- linha do hoje -->
+                    <div style=${"position:absolute;left:"+(hojePos*timelineW)+"px;top:0;bottom:0;width:2px;background:#F73A60;opacity:.7;pointer-events:none"}></div>
+                  </div>
+
+                  <!-- barras de cada etapa -->
+                  ${p.etapas.map(e=>{
+                    const clr = STA_COLOR[e.status]||STA_COLOR["A fazer"];
+                    const x   = pos(e.prazoDate)*timelineW;
+                    const bar_w = Math.max(colW*0.7, 8);
+                    const hoje2 = new Date(); hoje2.setHours(0,0,0,0);
+                    const atrasada = e.prazoDate < hoje2 && e.status!=="Concluído";
+                    return html`
+                      <div key=${e.id} style=${"height:"+rowH+"px;border-bottom:1px solid #F1F5F9;background:#fff;position:relative;display:flex;align-items:center"}>
+                        <!-- barra da atividade centrada no prazo -->
+                        <div title=${e.titulo+" — "+e.prazo+(e.responsavel?" ("+e.responsavel+")":"")}
+                          style=${"position:absolute;left:"+(x-bar_w/2)+"px;width:"+bar_w+"px;height:18px;border-radius:4px;background:"+(atrasada?"#FEE8ED":clr+"33")+";border:2px solid "+(atrasada?"#F73A60":clr)+";cursor:pointer;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:all .15s"}
+                          onMouseEnter=${ev=>ev.currentTarget.style.transform="scaleY(1.2)"}
+                          onMouseLeave=${ev=>ev.currentTarget.style.transform="scaleY(1)"}>
+                          ${e.status==="Concluído"?html`<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="${clr}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`:null}
+                          ${atrasada?html`<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#F73A60" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="12"/><circle cx="12" cy="16" r="1" fill="#F73A60"/></svg>`:null}
+                        </div>
+                        <!-- linha do hoje -->
+                        <div style=${"position:absolute;left:"+(hojePos*timelineW)+"px;top:0;bottom:0;width:2px;background:#F73A60;opacity:.5;pointer-events:none"}></div>
+                      </div>`;
+                  })}
+                </div>`)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
 /* ─── ATIVIDADES VIEW ────────────────────────────────────── */
 function AtividadesView({ iniciativas, onAbrirProjeto, onToggleEtapa }) {
   const [modo,       setModo]       = useState("membro"); // "membro" | "projeto"
@@ -1427,6 +1636,10 @@ function App() {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             Atividades
           </button>
+          <button class=${"btn-nav "+(view==="gantt"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("gantt")}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="10" y2="6"/><line x1="6" y1="12" x2="16" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/></svg>
+            Gantt
+          </button>
           <button class="btn-nav btn-nav-default" onClick=${()=>setCModal(true)}>${IconPlus(12)} Cluster</button>
           <button class="btn-nav btn-nav-default" onClick=${()=>{ setNewSq({nome:"",membros:""}); setSqModal(true); }}>${IconPlus(12)} Squad</button>
           <button class="btn-nav btn-nav-default" onClick=${exportCSV}>${IconDL(12)} CSV</button>
@@ -1490,7 +1703,7 @@ function App() {
       </div>
 
       <!-- GRID -->
-      <div class="flex-1 overflow-auto px-6 py-6" style=${view==="atividades"?"display:none":""}>
+      <div class="flex-1 overflow-auto px-6 py-6" style=${view==="atividades"||view==="gantt"?"display:none":""}>
         ${view==="lista" ? html`
           ${(()=>{
             /* ── sem agrupamento ── */
@@ -1638,6 +1851,7 @@ function App() {
           setIniciativas(p=>p.map(i=>i.id===iniciativa_id ? {...i,planejamento:novas} : i));
         }}
       />` : null}
+      ${view==="gantt" ? html`<${GanttView} iniciativas=${iniciativas} onAbrirProjeto=${(id)=>{ setDetailId(id); setDetailTab("planejamento"); setView("lista"); }} />` : null}
 
       <!-- DETAIL MODAL -->
       ${detail ? html`
