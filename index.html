@@ -903,9 +903,13 @@ REGRAS DE PRAZO (siga rigorosamente):
 }
 
 /* ─── GANTT VIEW ─────────────────────────────────────────── */
+/* ─── GANTT VIEW ─────────────────────────────────────────── */
 function GanttView({ iniciativas, onAbrirProjeto }) {
-  const [zoom, setZoom]     = useState("semanas"); // "semanas" | "meses"
+  const [zoom,       setZoom]       = useState("semanas");
+  const [expandidos, setExpandidos] = useState({}); // {id: true/false}
   const [hoje] = useState(()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; });
+
+  const toggle = (id) => setExpandidos(p=>({...p,[id]:!p[id]}));
 
   /* projetos com atividades que têm prazo */
   const projetos = useMemo(()=>{
@@ -915,10 +919,7 @@ function GanttView({ iniciativas, onAbrirProjeto }) {
         const nome = i.declaracao_visao?.titulo?.trim() || i.problema?.substring(0,55) || "#"+String(i.num).padStart(2,"0");
         const etapas = (i.planejamento||[])
           .filter(e=>e.prazo)
-          .map(e=>({
-            ...e,
-            prazoDate: new Date(e.prazo+"T00:00:00"),
-          }))
+          .map(e=>({ ...e, prazoDate: new Date(e.prazo+"T00:00:00") }))
           .sort((a,b)=>a.prazoDate-b.prazoDate);
         const inicio = etapas[0]?.prazoDate || hoje;
         const fim    = etapas[etapas.length-1]?.prazoDate || hoje;
@@ -933,177 +934,208 @@ function GanttView({ iniciativas, onAbrirProjeto }) {
     const allDates = projetos.flatMap(p=>p.etapas.map(e=>e.prazoDate));
     const minD = new Date(Math.min(...allDates, hoje));
     const maxD = new Date(Math.max(...allDates));
-
-    let tStart = new Date(minD); tStart.setDate(1);
-    let tEnd   = new Date(maxD); tEnd.setDate(1); tEnd.setMonth(tEnd.getMonth()+2);
-
+    let tS = new Date(minD); tS.setDate(1);
+    let tE = new Date(maxD); tE.setDate(1); tE.setMonth(tE.getMonth()+2);
     const cols = [];
     if (zoom==="semanas") {
-      // semanas: domingo a sábado
-      const cur = new Date(tStart);
-      cur.setDate(cur.getDate() - cur.getDay()); // ir para domingo
-      while (cur <= tEnd) {
-        cols.push(new Date(cur));
-        cur.setDate(cur.getDate()+7);
-      }
+      const cur = new Date(tS); cur.setDate(cur.getDate()-cur.getDay());
+      while (cur<=tE) { cols.push(new Date(cur)); cur.setDate(cur.getDate()+7); }
     } else {
-      // meses
-      const cur = new Date(tStart);
-      while (cur <= tEnd) {
-        cols.push(new Date(cur));
-        cur.setMonth(cur.getMonth()+1);
-      }
+      const cur = new Date(tS);
+      while (cur<=tE) { cols.push(new Date(cur)); cur.setMonth(cur.getMonth()+1); }
     }
-    return { tStart, tEnd, colunas:cols };
+    return { tStart:tS, tEnd:tE, colunas:cols };
   },[projetos, zoom, hoje]);
 
-  const totalCols  = colunas.length;
-  const colW       = zoom==="semanas" ? 56 : 80; // px por coluna
-  const rowH       = 32;
-  const labelW     = 220;
-  const timelineW  = totalCols * colW;
+  const colW      = zoom==="semanas" ? 56 : 80;
+  const rowH      = 36;
+  const labelW    = 240;
+  const timelineW = colunas.length * colW;
 
-  /* posição de uma data na timeline (0..1) */
   const pos = (date) => {
-    const d = new Date(date); d.setHours(0,0,0,0);
     const total = tEnd - tStart;
     if (total<=0) return 0;
-    return Math.max(0, Math.min(1, (d - tStart) / total));
+    return Math.max(0, Math.min(1, (new Date(date) - tStart) / total));
   };
 
-  /* coluna onde cai "hoje" */
-  const hojePos = pos(hoje);
-
-  const STA_COLOR = {
-    "Concluído":    "#00BE8C",
-    "Em andamento": "#F5BC50",
-    "A fazer":      "#C0C4CC",
-  };
+  const hojeX    = pos(hoje) * timelineW;
+  const STA_CLR  = { "Concluído":"#00BE8C", "Em andamento":"#F5BC50", "A fazer":"#C0C4CC" };
   const AREA_CLR = ["#009FCF","#00BE8C","#F73A60","#F5BC50","#8B5CF6","#EC4899","#F97316","#14B8A6"];
-  const areaColor = (area) => AREA_CLR[["Atendimento","Producao","Comercial","Financeiro","RH","CL","TI","Marketing"].indexOf(area)%AREA_CLR.length] || "#009FCF";
+  const aClr     = (a) => AREA_CLR[["Atendimento","Producao","Comercial","Financeiro","RH","CL","TI","Marketing"].indexOf(a)%AREA_CLR.length]||"#009FCF";
 
   if (!projetos.length) return html`
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:64px 0;color:#9193A0;background:#F7F9FC;flex:1">
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:64px;color:#9193A0;flex:1;background:#F7F9FC">
       <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:16px;color:#4A4A4A;margin-bottom:6px">Nenhum projeto com atividades e prazos</p>
-      <p style="font-size:13px">Abra um projeto, vá na aba Planejamento, adicione etapas com prazo definido.</p>
+      <p style="font-size:13px">Abra um projeto → aba Planejamento → adicione etapas com prazo definido.</p>
     </div>`;
 
   return html`
-    <div style="display:flex;flex-direction:column;flex:1;background:#F7F9FC;overflow:hidden">
+    <div style="display:flex;flex-direction:column;flex:1;background:#F7F9FC;overflow:hidden;min-height:0">
 
       <!-- sub-header -->
-      <div style="background:#fff;border-bottom:1px solid #E8ECF1;padding:12px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="background:#fff;border-bottom:1px solid #E8ECF1;padding:10px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex-shrink:0">
         <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0">
-          Evolução de Projetos — ${projetos.length} projeto${projetos.length!==1?"s":""}
+          Evolução de Projetos · ${projetos.length} projeto${projetos.length!==1?"s":""}
         </p>
-        <div style="display:flex;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;overflow:hidden;margin-left:auto">
-          ${[["semanas","Semanas"],["meses","Meses"]].map(([z,lbl])=>html`
-            <button key=${z} onClick=${()=>setZoom(z)}
-              style=${"padding:6px 14px;border:none;cursor:pointer;font-size:11px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(zoom===z?"background:#009FCF;color:#fff":"background:transparent;color:#9193A0")}>
-              ${lbl}
-            </button>`)}
-        </div>
-        <!-- legenda -->
-        <div style="display:flex;gap:12px;align-items:center">
-          ${[["Concluído","#00BE8C"],["Em andamento","#F5BC50"],["A fazer","#C0C4CC"]].map(([l,c])=>html`
-            <div key=${l} style="display:flex;align-items:center;gap:5px">
-              <span style=${"width:10px;height:10px;border-radius:2px;background:"+c+";display:inline-block"}></span>
-              <span style="font-size:11px;color:#9193A0">${l}</span>
-            </div>`)}
-          <div style="display:flex;align-items:center;gap:5px">
-            <span style="width:2px;height:14px;background:#F73A60;display:inline-block;border-radius:1px"></span>
-            <span style="font-size:11px;color:#9193A0">Hoje</span>
+        <!-- expand / collapse all -->
+        <button onClick=${()=>setExpandidos(Object.fromEntries(projetos.map(p=>[p.id,true])))}
+          style="font-size:11px;font-weight:600;color:#009FCF;background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:6px;font-family:'Plus Jakarta Sans',sans-serif">
+          Expandir todos
+        </button>
+        <button onClick=${()=>setExpandidos({})}
+          style="font-size:11px;font-weight:600;color:#9193A0;background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:6px;font-family:'Plus Jakarta Sans',sans-serif">
+          Recolher todos
+        </button>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <!-- legenda -->
+          <div style="display:flex;gap:10px;align-items:center">
+            ${[["Concluído","#00BE8C"],["Em andamento","#F5BC50"],["A fazer","#C0C4CC"],["Atrasada","#F73A60"]].map(([l,c])=>html`
+              <div key=${l} style="display:flex;align-items:center;gap:4px">
+                <span style=${"width:10px;height:10px;border-radius:2px;background:"+c+";display:inline-block"}></span>
+                <span style="font-size:10px;color:#9193A0">${l}</span>
+              </div>`)}
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="width:2px;height:12px;background:#F73A60;display:inline-block;border-radius:1px"></span>
+              <span style="font-size:10px;color:#9193A0">Hoje</span>
+            </div>
+          </div>
+          <!-- zoom -->
+          <div style="display:flex;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;overflow:hidden">
+            ${[["semanas","Semanas"],["meses","Meses"]].map(([z,lbl])=>html`
+              <button key=${z} onClick=${()=>setZoom(z)}
+                style=${"padding:5px 12px;border:none;cursor:pointer;font-size:11px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(zoom===z?"background:#009FCF;color:#fff":"background:transparent;color:#9193A0")}>
+                ${lbl}
+              </button>`)}
           </div>
         </div>
       </div>
 
-      <!-- gantt body -->
-      <div style="flex:1;overflow:auto">
-        <div style=${"display:flex;min-width:"+(labelW+timelineW)+"px"}>
+      <!-- gantt body com scroll -->
+      <div style="flex:1;overflow:auto;min-height:0">
+        <div style=${"display:flex;min-width:"+(labelW+timelineW)+"px;min-height:100%"}>
 
-          <!-- coluna de labels fixa (sticky via JS scroll sync) -->
-          <div style=${"flex-shrink:0;width:"+labelW+"px;background:#fff;border-right:1px solid #E8ECF1;z-index:2"}>
-            <!-- header vazio alinhado com o header da timeline -->
-            <div style=${"height:40px;border-bottom:2px solid #E8ECF1;background:#F7F9FC"}></div>
-            <!-- labels dos projetos -->
-            ${projetos.map(p=>html`
-              <div key=${p.id}>
-                <!-- linha do projeto -->
-                <div style=${"height:"+rowH+"px;display:flex;align-items:center;padding:0 12px;background:#F7F9FC;border-bottom:1px solid #E8ECF1;gap:6px;cursor:pointer"}
-                  onClick=${()=>onAbrirProjeto(p.id)}
-                  onMouseEnter=${e=>e.currentTarget.style.background="#EFF8FF"}
-                  onMouseLeave=${e=>e.currentTarget.style.background="#F7F9FC"}>
-                  <span style=${"width:8px;height:8px;border-radius:50%;background:"+areaColor(p.area)+";display:inline-block;flex-shrink:0"}></span>
-                  <span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:11px;color:#1C1C1C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1">${p.nome}</span>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C0C4CC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                </div>
-                <!-- linhas de etapas -->
-                ${p.etapas.map(e=>html`
-                  <div key=${e.id} style=${"height:"+rowH+"px;display:flex;align-items:center;padding:0 12px 0 24px;border-bottom:1px solid #F1F5F9;background:#fff"}>
-                    <span style=${"font-size:10px;color:"+(e.status==="Concluído"?"#9193A0":"#4A4A4A")+";white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:"+(e.status==="Concluído"?"line-through":"none")}>${e.titulo}</span>
-                  </div>`)}
-              </div>`)}
-          </div>
+          <!-- COLUNA LABELS (sticky left via position:sticky) -->
+          <div style=${"flex-shrink:0;width:"+labelW+"px;position:sticky;left:0;background:#fff;border-right:2px solid #E8ECF1;z-index:3"}>
+            <!-- header vazio alinhado com colunas de tempo -->
+            <div style="height:40px;background:#F7F9FC;border-bottom:2px solid #E8ECF1"></div>
 
-          <!-- área da timeline com scroll horizontal -->
-          <div style=${"flex:1;overflow-x:auto;position:relative"}>
-            <!-- header de colunas de tempo -->
-            <div style=${"display:flex;height:40px;border-bottom:2px solid #E8ECF1;background:#F7F9FC;position:sticky;top:0;z-index:1"}>
-              ${colunas.map((c,idx)=>html`
-                <div key=${idx} style=${"flex-shrink:0;width:"+colW+"px;border-right:1px solid #E8ECF1;display:flex;align-items:center;justify-content:center;padding:0 2px"}>
-                  <span style="font-size:10px;font-weight:600;color:#9193A0;font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap">
-                    ${zoom==="semanas"
-                      ? c.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})
-                      : c.toLocaleDateString("pt-BR",{month:"short",year:"2-digit"})}
-                  </span>
-                </div>`)}
-            </div>
-
-            <!-- linhas das atividades com barras -->
-            <div style="position:relative">
-              ${projetos.map(p=>html`
+            ${projetos.map(p=>{
+              const exp  = !!expandidos[p.id];
+              const done = p.etapas.filter(e=>e.status==="Concluído").length;
+              const pct  = p.etapas.length ? Math.round(done/p.etapas.length*100) : 0;
+              const ac   = aClr(p.area);
+              const atrasadas = p.etapas.filter(e=>{ const h=new Date(); h.setHours(0,0,0,0); return e.prazoDate<h && e.status!=="Concluído"; }).length;
+              return html`
                 <div key=${p.id}>
-                  <!-- linha do projeto (barra de duração total) -->
-                  <div style=${"height:"+rowH+"px;border-bottom:1px solid #E8ECF1;background:#F7F9FC;position:relative;display:flex;align-items:center"}>
-                    ${(()=>{
-                      const left  = pos(p.inicio)*timelineW;
-                      const right = pos(p.fim)*timelineW;
-                      const w     = Math.max(right-left, 6);
-                      const done  = p.etapas.filter(e=>e.status==="Concluído").length;
-                      const pct   = p.etapas.length ? Math.round(done/p.etapas.length*100) : 0;
-                      const ac    = areaColor(p.area);
-                      return html`
-                        <div style=${"position:absolute;left:"+left+"px;width:"+w+"px;height:16px;border-radius:4px;background:"+ac+"22;border:1px solid "+ac+";overflow:hidden;display:flex;align-items:center"}>
-                          <div style=${"height:100%;background:"+ac+"66;width:"+pct+"%"}></div>
-                          <span style=${"position:absolute;left:6px;font-size:9px;font-weight:700;color:"+ac+";font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap"}>${pct}%</span>
-                        </div>`;
-                    })()}
-                    <!-- linha do hoje -->
-                    <div style=${"position:absolute;left:"+(hojePos*timelineW)+"px;top:0;bottom:0;width:2px;background:#F73A60;opacity:.7;pointer-events:none"}></div>
+                  <!-- LINHA PAI -->
+                  <div style=${"height:"+rowH+"px;display:flex;align-items:center;padding:0 10px;gap:6px;background:#F7F9FC;border-bottom:1px solid #E8ECF1;cursor:pointer;transition:background .1s"}
+                    onMouseEnter=${e=>e.currentTarget.style.background="#EFF8FF"}
+                    onMouseLeave=${e=>e.currentTarget.style.background="#F7F9FC"}>
+                    <!-- seta expandir/recolher -->
+                    <button onClick=${(e)=>{ e.stopPropagation(); toggle(p.id); }}
+                      style="background:none;border:none;cursor:pointer;padding:2px;flex-shrink:0;display:flex;align-items:center;color:#9193A0;transition:transform .2s;transform:${exp?'rotate(90deg)':'rotate(0deg)'}">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>
+                    <!-- ponto de cor da área -->
+                    <span style=${"width:8px;height:8px;border-radius:50%;background:"+ac+";display:inline-block;flex-shrink:0"}></span>
+                    <!-- nome do projeto (clicável para abrir modal) -->
+                    <span onClick=${(e)=>{ e.stopPropagation(); onAbrirProjeto(p.id); }}
+                      style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:11px;color:#1C1C1C;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer"
+                      onMouseEnter=${e=>e.target.style.color="#009FCF"}
+                      onMouseLeave=${e=>e.target.style.color="#1C1C1C"}>
+                      ${p.nome}
+                    </span>
+                    <!-- badges -->
+                    <span style="font-size:9px;font-weight:700;color:#fff;background:#009FCF;padding:1px 5px;border-radius:999px;flex-shrink:0">${pct}%</span>
+                    ${atrasadas ? html`<span style="font-size:9px;font-weight:700;color:#F73A60;background:#FEE8ED;padding:1px 5px;border-radius:999px;flex-shrink:0">⚠${atrasadas}</span>` : null}
                   </div>
 
-                  <!-- barras de cada etapa -->
-                  ${p.etapas.map(e=>{
-                    const clr = STA_COLOR[e.status]||STA_COLOR["A fazer"];
-                    const x   = pos(e.prazoDate)*timelineW;
-                    const bar_w = Math.max(colW*0.7, 8);
-                    const hoje2 = new Date(); hoje2.setHours(0,0,0,0);
-                    const atrasada = e.prazoDate < hoje2 && e.status!=="Concluído";
-                    return html`
-                      <div key=${e.id} style=${"height:"+rowH+"px;border-bottom:1px solid #F1F5F9;background:#fff;position:relative;display:flex;align-items:center"}>
-                        <!-- barra da atividade centrada no prazo -->
-                        <div title=${e.titulo+" — "+e.prazo+(e.responsavel?" ("+e.responsavel+")":"")}
-                          style=${"position:absolute;left:"+(x-bar_w/2)+"px;width:"+bar_w+"px;height:18px;border-radius:4px;background:"+(atrasada?"#FEE8ED":clr+"33")+";border:2px solid "+(atrasada?"#F73A60":clr)+";cursor:pointer;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:all .15s"}
-                          onMouseEnter=${ev=>ev.currentTarget.style.transform="scaleY(1.2)"}
-                          onMouseLeave=${ev=>ev.currentTarget.style.transform="scaleY(1)"}>
-                          ${e.status==="Concluído"?html`<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="${clr}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`:null}
-                          ${atrasada?html`<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#F73A60" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="12"/><circle cx="12" cy="16" r="1" fill="#F73A60"/></svg>`:null}
-                        </div>
-                        <!-- linha do hoje -->
-                        <div style=${"position:absolute;left:"+(hojePos*timelineW)+"px;top:0;bottom:0;width:2px;background:#F73A60;opacity:.5;pointer-events:none"}></div>
-                      </div>`;
-                  })}
-                </div>`)}
+                  <!-- LINHAS FILHO (etapas) -->
+                  ${exp ? p.etapas.map((e,idx)=>html`
+                    <div key=${e.id} style=${"height:"+rowH+"px;display:flex;align-items:center;padding:0 10px 0 32px;border-bottom:1px solid #F1F5F9;background:#fff;gap:6px"}>
+                      <!-- linha vertical de conexão pai→filho -->
+                      <div style="position:relative;flex-shrink:0">
+                        <div style=${"position:absolute;left:-16px;top:0;width:1px;height:"+(idx<p.etapas.length-1?"100%":"50%")+";background:#E8ECF1"}></div>
+                        <div style="position:absolute;left:-16px;top:50%;width:10px;height:1px;background:#E8ECF1"></div>
+                      </div>
+                      <!-- ícone de status -->
+                      <span style=${"width:8px;height:8px;border-radius:50%;background:"+(STA_CLR[e.status]||"#C0C4CC")+";display:inline-block;flex-shrink:0"}></span>
+                      <!-- nome da etapa -->
+                      <span style=${"font-size:11px;color:"+(e.status==="Concluído"?"#9193A0":"#4A4A4A")+";white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:"+(e.status==="Concluído"?"line-through":"none")+";flex:1"}>
+                        ${e.titulo}
+                      </span>
+                      ${e.responsavel ? html`<span style="font-size:9px;color:#9193A0;white-space:nowrap;flex-shrink:0">👤 ${e.responsavel.split(" ")[0]}</span>` : null}
+                    </div>`) : null}
+                </div>`;
+            })}
+          </div>
+
+          <!-- ÁREA DA TIMELINE -->
+          <div style="flex:1;position:relative;overflow:visible">
+            <!-- header de tempo (sticky top) -->
+            <div style=${"display:flex;height:40px;border-bottom:2px solid #E8ECF1;background:#F7F9FC;position:sticky;top:0;z-index:2"}>
+              ${colunas.map((c,idx)=>{
+                const isHoje = zoom==="semanas"
+                  ? c<=hoje && new Date(c.getTime()+7*86400000)>hoje
+                  : c.getMonth()===hoje.getMonth() && c.getFullYear()===hoje.getFullYear();
+                return html`
+                  <div key=${idx} style=${"flex-shrink:0;width:"+colW+"px;border-right:1px solid #E8ECF1;display:flex;align-items:center;justify-content:center;background:"+(isHoje?"#FFF3F3":"#F7F9FC")}>
+                    <span style=${"font-size:10px;font-weight:"+(isHoje?"700":"500")+";color:"+(isHoje?"#F73A60":"#9193A0")+";font-family:'Plus Jakarta Sans',sans-serif;white-space:nowrap"}>
+                      ${zoom==="semanas"
+                        ? c.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})
+                        : c.toLocaleDateString("pt-BR",{month:"short",year:"2-digit"})}
+                    </span>
+                  </div>`;
+              })}
+            </div>
+
+            <!-- linhas do gantt -->
+            <div style="position:relative">
+              <!-- linha vertical de hoje (sobre tudo) -->
+              <div style=${"position:absolute;left:"+hojeX+"px;top:0;bottom:0;width:2px;background:#F73A60;opacity:.6;pointer-events:none;z-index:2"}></div>
+
+              ${projetos.map(p=>{
+                const exp  = !!expandidos[p.id];
+                const ac   = aClr(p.area);
+                const done = p.etapas.filter(e=>e.status==="Concluído").length;
+                const pct  = p.etapas.length ? done/p.etapas.length : 0;
+                const pLeft  = pos(p.inicio)*timelineW;
+                const pRight = pos(p.fim)*timelineW;
+                const pW     = Math.max(pRight-pLeft, 8);
+                return html`
+                  <div key=${p.id}>
+                    <!-- LINHA PAI na timeline -->
+                    <div style=${"height:"+rowH+"px;border-bottom:1px solid #E8ECF1;background:#F7F9FC;position:relative"}>
+                      <!-- barra de progresso do projeto -->
+                      <div style=${"position:absolute;top:50%;transform:translateY(-50%);left:"+pLeft+"px;width:"+pW+"px;height:14px;border-radius:6px;background:"+ac+"22;border:1.5px solid "+ac+";overflow:hidden"}>
+                        <div style=${"height:100%;background:"+ac+"55;width:"+(pct*100)+"%"}></div>
+                      </div>
+                    </div>
+
+                    <!-- LINHAS FILHO na timeline -->
+                    ${exp ? p.etapas.map(e=>{
+                      const clr  = STA_CLR[e.status]||STA_CLR["A fazer"];
+                      const h2   = new Date(); h2.setHours(0,0,0,0);
+                      const atras = e.prazoDate<h2 && e.status!=="Concluído";
+                      const bclr  = atras?"#F73A60":clr;
+                      const x     = pos(e.prazoDate)*timelineW;
+                      const bW    = Math.max(colW*0.65, 8);
+                      return html`
+                        <div key=${e.id} style=${"height:"+rowH+"px;border-bottom:1px solid #F1F5F9;background:#fff;position:relative"}>
+                          <!-- losango / marcador de prazo -->
+                          <div title=${e.titulo+" — "+new Date(e.prazo+"T00:00:00").toLocaleDateString("pt-BR")+(e.responsavel?" · "+e.responsavel:"")}
+                            style=${"position:absolute;top:50%;transform:translate(-50%,-50%) rotate(45deg);left:"+x+"px;width:12px;height:12px;background:"+(atras?"#FEE8ED":bclr+"33")+";border:2px solid "+bclr+";cursor:pointer;transition:transform .15s"}
+                            onMouseEnter=${ev=>ev.currentTarget.style.transform="translate(-50%,-50%) rotate(45deg) scale(1.4)"}
+                            onMouseLeave=${ev=>ev.currentTarget.style.transform="translate(-50%,-50%) rotate(45deg) scale(1)"}>
+                          </div>
+                          <!-- label de prazo (aparece ao lado do losango se houver espaço) -->
+                          <span style=${"position:absolute;top:50%;transform:translateY(-50%);left:"+(x+12)+"px;font-size:9px;color:"+bclr+";font-weight:600;white-space:nowrap;pointer-events:none;"+(atras?"opacity:1":"opacity:.7")}>
+                            ${new Date(e.prazo+"T00:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}
+                          </span>
+                        </div>`;
+                    }) : null}
+                  </div>`;
+              })}
             </div>
           </div>
         </div>
