@@ -576,9 +576,17 @@ Use no máximo 3 fases. Cada fase com 2 a 5 tarefas. Prazos em dias a partir de 
 
   const confirmarRascunho = async () => {
     setSaving(true);
-    await patch(detail.id, { analise_smart: smartDraft, planejamento: planDraft });
-    setSmartDraft(null); setPlanDraft(null);
-    setSaving(false);
+    try {
+      await patch(detail.id, { analise_smart: smartDraft, planejamento: planDraft });
+      setSmartDraft(null);
+      setPlanDraft(null);
+      setEditingId(null);
+      setAdding(false);
+    } catch(e) {
+      alert("Erro ao salvar: "+e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const addEtapa = async () => {
@@ -1191,7 +1199,8 @@ function App() {
     try {
       await supa("iniciativas?id=eq."+id, {method:"PATCH",body:fields});
       setIniciativas(p=>p.map(i=>i.id===id?{...i,...fields}:i));
-    } catch(e) { alert("Erro: "+e.message); }
+      return true;
+    } catch(e) { alert("Erro: "+e.message); return false; }
     finally { setSaving(null); }
   };
 
