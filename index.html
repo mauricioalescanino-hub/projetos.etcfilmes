@@ -541,8 +541,11 @@ Retorne EXATAMENTE neste formato JSON:
 Use no máximo 3 fases. Cada fase com 2 a 5 tarefas. Seja específico e acionável.
 
 REGRAS DE PRAZO (siga rigorosamente):
+- As fases são SEQUENCIAIS: Fase 2 só começa depois que Fase 1 termina, Fase 3 só começa depois que Fase 2 termina
+- Os prazos devem aumentar progressivamente: prazo_dias da Fase 1 < prazo_dias da Fase 2 < prazo_dias da Fase 3
+- Dentro de cada fase, os prazos também devem ser crescentes entre as tarefas
 - Seja enxuto e realista — evite prazos conservadores demais
-- Tarefas simples (reunião, pesquisa, configuração): 1 a 3 dias (prazo_dias: 1, 2 ou 3)
+- Tarefas simples (reunião, pesquisa, configuração): 1 a 3 dias
 - Tarefas pontuais de implementação: 3 a 7 dias
 - Tarefas complexas ou de integração: 7 a 14 dias
 - Nunca ultrapasse 21 dias por tarefa individual
