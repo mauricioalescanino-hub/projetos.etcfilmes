@@ -922,6 +922,258 @@ Se a iniciativa é uma Tarefa simples, o plano inteiro deve caber em 7 dias. Nã
     </div>`;
 }
 
+/* ─── DESEMPENHO VIEW ────────────────────────────────────── */
+function DesempenhoView({ iniciativas, onAbrirProjeto }) {
+  const [ordenar,    setOrdenar]    = useState("atraso"); // "atraso"|"entregues"|"nome"
+  const [detalheMembro, setDetalheMembro] = useState(null);
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+
+  /* calcular métricas por membro */
+  const membros = useMemo(() => {
+    const map = {};
+    iniciativas.forEach(ini => {
+      const nomeProj = ini.declaracao_visao?.titulo?.trim() || ini.problema?.substring(0,50) || "#"+String(ini.num).padStart(2,"0");
+      (ini.planejamento||[]).forEach(e => {
+        if (!e.responsavel?.trim()) return;
+        const resp = e.responsavel.trim();
+        if (!map[resp]) map[resp] = {
+          nome: resp,
+          total: 0, concluidas: 0, emAndamento: 0, aFazer: 0,
+          atrasadas: 0, diasAtraso: 0, maxAtraso: 0,
+          entregasNoPrazo: 0, entregasForaPrazo: 0,
+          etapas: [],
+        };
+        const m = map[resp];
+        const prazoDate = e.prazo ? new Date(e.prazo+"T00:00:00") : null;
+        const atrasada  = prazoDate && e.status!=="Concluído" && prazoDate < hoje;
+        const diasAtras = atrasada ? Math.ceil((hoje - prazoDate)/86400000) : 0;
+
+        m.total++;
+        if      (e.status==="Concluído")    m.concluidas++;
+        else if (e.status==="Em andamento") m.emAndamento++;
+        else                                m.aFazer++;
+
+        if (atrasada) {
+          m.atrasadas++;
+          m.diasAtraso += diasAtras;
+          m.maxAtraso   = Math.max(m.maxAtraso, diasAtras);
+        }
+
+        // entrega no prazo vs fora — só para concluídas com prazo
+        if (e.status==="Concluído" && prazoDate) {
+          // sem data de conclusão disponível, assumimos que foi entregue "hoje" para fins de cálculo
+          // flag vem do campo origem ou status apenas
+          m.entregasNoPrazo++; // simplificado: concluída = entregue
+        }
+
+        m.etapas.push({
+          ...e, prazoDate, atrasada, diasAtras,
+          nome_projeto: nomeProj, iniciativa_id: ini.id,
+        });
+      });
+    });
+    return Object.values(map);
+  }, [iniciativas]);
+
+  const ordenados = useMemo(() => {
+    const lista = [...membros];
+    if (ordenar==="atraso")     return lista.sort((a,b)=>b.maxAtraso-a.maxAtraso||b.atrasadas-a.atrasadas);
+    if (ordenar==="entregues")  return lista.sort((a,b)=>b.concluidas-a.concluidas);
+    if (ordenar==="total")      return lista.sort((a,b)=>b.total-a.total);
+    return lista.sort((a,b)=>a.nome.localeCompare(b.nome));
+  }, [membros, ordenar]);
+
+  /* totais gerais */
+  const totais = useMemo(()=>({
+    membros:    membros.length,
+    total:      membros.reduce((s,m)=>s+m.total,0),
+    concluidas: membros.reduce((s,m)=>s+m.concluidas,0),
+    atrasadas:  membros.reduce((s,m)=>s+m.atrasadas,0),
+    emAndamento:membros.reduce((s,m)=>s+m.emAndamento,0),
+  }),[membros]);
+
+  const pct    = (a,b) => b===0 ? 0 : Math.round(a/b*100);
+  const clrPct = (p)   => p>=80?"#00BE8C":p>=50?"#F5BC50":"#F73A60";
+
+  /* barra de progresso inline */
+  const MiniBar = ({val, max, color="#009FCF"}) => html`
+    <div style="width:100%;height:6px;background:#F1F5F9;border-radius:999px;overflow:hidden">
+      <div style=${"height:100%;background:"+color+";border-radius:999px;width:"+Math.round(val/Math.max(max,1)*100)+"%"}></div>
+    </div>`;
+
+  if (!membros.length) return html`
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:64px;color:#9193A0;flex:1;background:#F7F9FC">
+      <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:16px;color:#4A4A4A;margin-bottom:6px">Nenhum responsável cadastrado</p>
+      <p style="font-size:13px">Adicione responsáveis nas atividades dos projetos para ver o desempenho.</p>
+    </div>`;
+
+  return html`
+    <div style="display:flex;flex-direction:column;flex:1;background:#F7F9FC;overflow:hidden;min-height:0">
+
+      <!-- sub-header -->
+      <div style="background:#fff;border-bottom:1px solid #E8ECF1;padding:10px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex-shrink:0">
+        <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0">
+          Desempenho da Equipe · ${totais.membros} membro${totais.membros!==1?"s":""}
+        </p>
+        <!-- stat chips -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span style="background:#EDFCF5;color:#065F46;border:1px solid #A7F3D0;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;font-family:'Plus Jakarta Sans',sans-serif">
+            ✓ ${totais.concluidas} concluídas
+          </span>
+          <span style="background:#FFFBEB;color:#D97706;border:1px solid #FDE68A;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;font-family:'Plus Jakarta Sans',sans-serif">
+            ⏳ ${totais.emAndamento} em andamento
+          </span>
+          ${totais.atrasadas ? html`
+            <span style="background:#FEE8ED;color:#F73A60;border:1px solid #FECDD3;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;font-family:'Plus Jakarta Sans',sans-serif">
+              ⚠ ${totais.atrasadas} atrasadas
+            </span>` : null}
+        </div>
+        <!-- ordenar -->
+        <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px;color:#9193A0">Ordenar por</span>
+          ${[["atraso","Atraso"],["entregues","Entregues"],["total","Total"],["nome","Nome"]].map(([v,l])=>html`
+            <button key=${v} onClick=${()=>setOrdenar(v)}
+              style=${"padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;border:1px solid;transition:all .15s;"+(ordenar===v?"background:#009FCF;color:#fff;border-color:#009FCF":"background:#fff;color:#9193A0;border-color:#E8ECF1")}>
+              ${l}
+            </button>`)}
+        </div>
+      </div>
+
+      <!-- cards de membros -->
+      <div style="flex:1;overflow-y:auto;padding:24px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+          ${ordenados.map(m=>{
+            const pctConc  = pct(m.concluidas, m.total);
+            const clr      = clrPct(pctConc);
+            const isOpen   = detalheMembro===m.nome;
+            const atrasadasOrdenadas = m.etapas
+              .filter(e=>e.atrasada)
+              .sort((a,b)=>b.diasAtras-a.diasAtras);
+            const emAndamentoList = m.etapas
+              .filter(e=>e.status==="Em andamento")
+              .sort((a,b)=>(a.prazoDate||new Date(9999,0))-(b.prazoDate||new Date(9999,0)));
+
+            return html`
+              <div key=${m.nome} style="background:#fff;border:1px solid #E8ECF1;border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.04);transition:box-shadow .15s"
+                onMouseEnter=${e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(0,159,207,0.08)"}
+                onMouseLeave=${e=>e.currentTarget.style.boxShadow="0 1px 4px rgba(0,0,0,0.04)"}>
+
+                <!-- cabeçalho do card -->
+                <div style="padding:16px 16px 12px">
+                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+                    <!-- avatar inicial -->
+                    <div style=${"width:36px;height:36px;border-radius:50%;background:"+clr+"22;border:2px solid "+clr+";display:flex;align-items:center;justify-content:center;flex-shrink:0"}>
+                      <span style=${"font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:14px;color:"+clr}>
+                        ${m.nome.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div style="flex:1;min-width:0">
+                      <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:14px;color:#1C1C1C;margin:0 0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.nome}</p>
+                      <p style="font-size:11px;color:#9193A0;margin:0">${m.total} atividade${m.total!==1?"s":""} atribuída${m.total!==1?"s":""}</p>
+                    </div>
+                    <!-- badge de atraso destacado -->
+                    ${m.maxAtraso>0 ? html`
+                      <span style="background:#FEE8ED;color:#F73A60;border:1px solid #FECDD3;font-size:10px;font-weight:700;padding:3px 8px;border-radius:999px;font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0">
+                        ⚠ ${m.maxAtraso}d atraso
+                      </span>` : html`
+                      <span style="background:#EDFCF5;color:#065F46;border:1px solid #A7F3D0;font-size:10px;font-weight:700;padding:3px 8px;border-radius:999px;font-family:'Plus Jakarta Sans',sans-serif;flex-shrink:0">
+                        ✓ Em dia
+                      </span>`}
+                  </div>
+
+                  <!-- métricas em grid -->
+                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+                    ${[
+                      ["Concluídas", m.concluidas, "#00BE8C", "#EDFCF5"],
+                      ["Em andamento", m.emAndamento, "#D97706", "#FFFBEB"],
+                      ["Atrasadas", m.atrasadas, "#F73A60", "#FEE8ED"],
+                    ].map(([label, val, cor, bg])=>html`
+                      <div key=${label} style=${"background:"+bg+";border-radius:8px;padding:8px;text-align:center"}>
+                        <p style=${"font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:18px;color:"+cor+";margin:0;line-height:1"}>${val}</p>
+                        <p style="font-size:10px;color:#9193A0;margin:3px 0 0">${label}</p>
+                      </div>`)}
+                  </div>
+
+                  <!-- barra de conclusão -->
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                    <div style="flex:1">${MiniBar({val:m.concluidas, max:m.total, color:clr})}</div>
+                    <span style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;font-weight:700;color:"+clr}>${pctConc}%</span>
+                  </div>
+                  <p style="font-size:10px;color:#9193A0;margin:0">${pctConc}% das atividades concluídas</p>
+                </div>
+
+                <!-- seção de detalhes expandível -->
+                ${(m.atrasadas>0||m.emAndamento>0) ? html`
+                  <div style="border-top:1px solid #F1F5F9">
+                    <button onClick=${()=>setDetalheMembro(isOpen?null:m.nome)}
+                      style="width:100%;padding:10px 16px;background:none;border:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:600;color:#9193A0;transition:background .1s"
+                      onMouseEnter=${e=>e.currentTarget.style.background="#F7F9FC"}
+                      onMouseLeave=${e=>e.currentTarget.style.background="none"}>
+                      <span>${isOpen?"Ocultar detalhes":"Ver detalhes"}</span>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                        style=${"transition:transform .2s;transform:"+(isOpen?"rotate(180deg)":"rotate(0deg)")}>
+                        <polyline points="6 9 12 15 18 9"/>
+                      </svg>
+                    </button>
+
+                    ${isOpen ? html`
+                      <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:10px">
+
+                        <!-- atrasadas -->
+                        ${atrasadasOrdenadas.length ? html`
+                          <div>
+                            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;color:#F73A60;text-transform:uppercase;letter-spacing:.08em;margin:0 0 6px">
+                              ⚠ Atrasadas (${atrasadasOrdenadas.length})
+                            </p>
+                            <div style="display:flex;flex-direction:column;gap:4px">
+                              ${atrasadasOrdenadas.map(e=>html`
+                                <div key=${e.id} style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:#FFF5F5;border:1px solid #FECDD3;border-radius:8px;cursor:pointer"
+                                  onClick=${()=>onAbrirProjeto(e.iniciativa_id)}
+                                  onMouseEnter=${ev=>ev.currentTarget.style.background="#FEE8ED"}
+                                  onMouseLeave=${ev=>ev.currentTarget.style.background="#FFF5F5"}>
+                                  <div style="flex:1;min-width:0">
+                                    <p style="font-size:12px;font-weight:600;color:#1C1C1C;margin:0 0 1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.titulo}</p>
+                                    <p style="font-size:10px;color:#9193A0;margin:0">📁 ${e.nome_projeto}</p>
+                                  </div>
+                                  <span style="background:#F73A60;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;flex-shrink:0">
+                                    +${e.diasAtras}d
+                                  </span>
+                                </div>`)}
+                            </div>
+                          </div>` : null}
+
+                        <!-- em andamento -->
+                        ${emAndamentoList.length ? html`
+                          <div>
+                            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;color:#D97706;text-transform:uppercase;letter-spacing:.08em;margin:0 0 6px">
+                              Em andamento (${emAndamentoList.length})
+                            </p>
+                            <div style="display:flex;flex-direction:column;gap:4px">
+                              ${emAndamentoList.map(e=>html`
+                                <div key=${e.id} style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;cursor:pointer"
+                                  onClick=${()=>onAbrirProjeto(e.iniciativa_id)}
+                                  onMouseEnter=${ev=>ev.currentTarget.style.background="#FEF9C3"}
+                                  onMouseLeave=${ev=>ev.currentTarget.style.background="#FFFBEB"}>
+                                  <div style="flex:1;min-width:0">
+                                    <p style="font-size:12px;font-weight:600;color:#1C1C1C;margin:0 0 1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.titulo}</p>
+                                    <p style="font-size:10px;color:#9193A0;margin:0">📁 ${e.nome_projeto}</p>
+                                  </div>
+                                  ${e.prazoDate ? html`
+                                    <span style=${"font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;white-space:nowrap;flex-shrink:0;"+(e.prazoDate<=hoje?"background:#FEE8ED;color:#F73A60":"background:#F1F5F9;color:#475569")}>
+                                      📅 ${e.prazoDate.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}
+                                    </span>` : null}
+                                </div>`)}
+                            </div>
+                          </div>` : null}
+                      </div>` : null}
+                  </div>` : null}
+              </div>`;
+          })}
+        </div>
+      </div>
+    </div>`;
+}
+
 /* ─── GANTT VIEW ─────────────────────────────────────────── */
 /* ─── GANTT VIEW ─────────────────────────────────────────── */
 function GanttView({ iniciativas, onAbrirProjeto }) {
@@ -1779,6 +2031,10 @@ function App() {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="10" y2="6"/><line x1="6" y1="12" x2="16" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/></svg>
             Gantt
           </button>
+          <button class=${"btn-nav "+(view==="desempenho"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("desempenho")}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Desempenho
+          </button>
           <button class="btn-nav btn-nav-default" onClick=${()=>setCModal(true)}>${IconPlus(12)} Cluster</button>
           <button class="btn-nav btn-nav-default" onClick=${()=>{ setNewSq({nome:"",membros:""}); setSqModal(true); }}>${IconPlus(12)} Squad</button>
           <button class="btn-nav btn-nav-default" onClick=${exportCSV}>${IconDL(12)} CSV</button>
@@ -1842,7 +2098,7 @@ function App() {
       </div>
 
       <!-- GRID -->
-      <div class="flex-1 overflow-auto px-6 py-6" style=${view==="atividades"||view==="gantt"?"display:none":""}>
+      <div class="flex-1 overflow-auto px-6 py-6" style=${view==="atividades"||view==="gantt"||view==="desempenho"?"display:none":""}>
         ${view==="lista" ? html`
           ${(()=>{
             /* ── sem agrupamento ── */
@@ -1991,6 +2247,7 @@ function App() {
         }}
       />` : null}
       ${view==="gantt" ? html`<${GanttView} iniciativas=${iniciativas} onAbrirProjeto=${(id)=>{ setDetailId(id); setDetailTab("planejamento"); setView("lista"); }} />` : null}
+      ${view==="desempenho" ? html`<${DesempenhoView} iniciativas=${iniciativas} onAbrirProjeto=${(id)=>{ setDetailId(id); setDetailTab("planejamento"); setView("lista"); }} />` : null}
 
       <!-- DETAIL MODAL -->
       ${detail ? html`
