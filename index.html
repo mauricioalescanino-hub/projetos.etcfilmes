@@ -1165,8 +1165,8 @@ function GanttView({ iniciativas, onAbrirProjeto }) {
 
 /* ─── ATIVIDADES VIEW ────────────────────────────────────── */
 function AtividadesView({ iniciativas, onAbrirProjeto, onToggleEtapa }) {
-  const [modo,       setModo]       = useState("membro"); // "membro" | "projeto"
-  const [filtroSta,  setFiltroSta]  = useState("");       // "" | "A fazer" | "Em andamento" | "Concluído" | "atrasado"
+  const [modo,       setModo]       = useState("membro"); // "membro" | "projeto" | "prazo"
+  const [filtroSta,  setFiltroSta]  = useState("");
   const [filtroResp, setFiltroResp] = useState("");
 
   /* coletar todas as etapas de todas as iniciativas que têm planejamento */
@@ -1348,7 +1348,7 @@ function AtividadesView({ iniciativas, onAbrirProjeto, onToggleEtapa }) {
             </select>` : null}
           <!-- toggle modo -->
           <div style="display:flex;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;overflow:hidden">
-            ${[["membro","👤 Por Membro"],["projeto","📁 Por Projeto"]].map(([m,lbl])=>html`
+            ${[["membro","👤 Por Membro"],["projeto","📁 Por Projeto"],["prazo","📅 Por Prazo"]].map(([m,lbl])=>html`
               <button key=${m} onClick=${()=>setModo(m)}
                 style=${"padding:6px 12px;border:none;cursor:pointer;font-size:11px;font-weight:700;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(modo===m?"background:#009FCF;color:#fff":"background:transparent;color:#9193A0")}>
                 ${lbl}
@@ -1392,7 +1392,7 @@ function AtividadesView({ iniciativas, onAbrirProjeto, onToggleEtapa }) {
                     </div>`)}
                 </div>
               </div>`)}
-          </div>` : html`
+          </div>` : modo==="projeto" ? html`
           <!-- MODO PROJETO -->
           <div style="display:flex;flex-direction:column;gap:28px">
             ${gruposProjeto.map(g=>html`
@@ -1411,7 +1411,94 @@ function AtividadesView({ iniciativas, onAbrirProjeto, onToggleEtapa }) {
                     .map(e=>html`${EtapaRow({e})}`)}
                 </div>
               </div>`)}
-          </div>`}
+          </div>` : html`
+          <!-- MODO PRAZO -->
+          ${(()=>{
+            const agora = new Date(); agora.setHours(0,0,0,0);
+            const fimSemana = new Date(agora); fimSemana.setDate(agora.getDate()+7);
+            const fimProx   = new Date(agora); fimProx.setDate(agora.getDate()+30);
+
+            const bucket = (e) => {
+              if (!e.prazoDate || !e.prazo) return "sem";
+              if (e.status==="Concluído") return "ok";
+              if (e.prazoDate < agora) return "vencidas";
+              if (e.prazoDate.getTime()===agora.getTime()) return "hoje";
+              if (e.prazoDate <= fimSemana) return "semana";
+              if (e.prazoDate <= fimProx) return "proximas";
+              return "futuro";
+            };
+
+            const grupos = [
+              {
+                key:"vencidas", label:"⚠ Vencidas",
+                cor:"#F73A60", bg:"#FEE8ED", border:"#FECDD3",
+                desc:"Atividades com prazo já ultrapassado",
+              },
+              {
+                key:"hoje", label:"🔴 Vencem hoje",
+                cor:"#D97706", bg:"#FFFBEB", border:"#FDE68A",
+                desc:"Prazo é hoje",
+              },
+              {
+                key:"semana", label:"🟡 Esta semana",
+                cor:"#D97706", bg:"#FFFBEB", border:"#FDE68A",
+                desc:"Prazo nos próximos 7 dias",
+              },
+              {
+                key:"proximas", label:"🔵 Próximas (até 30 dias)",
+                cor:"#0369A1", bg:"#EFF8FF", border:"#BAE6FD",
+                desc:"Prazo entre 8 e 30 dias",
+              },
+              {
+                key:"futuro", label:"⚪ Futuras (acima de 30 dias)",
+                cor:"#475569", bg:"#F1F5F9", border:"#CBD5E1",
+                desc:"Prazo superior a 30 dias",
+              },
+              {
+                key:"sem", label:"— Sem prazo definido",
+                cor:"#9193A0", bg:"#F7F9FC", border:"#E8ECF1",
+                desc:"Atividades sem data de entrega",
+              },
+            ];
+
+            return html`
+              <div style="display:flex;flex-direction:column;gap:24px">
+                ${grupos.map(g=>{
+                  const itens = filtradas
+                    .filter(e=>bucket(e)===g.key)
+                    .sort((a,b)=>{
+                      if (a.prazoDate&&b.prazoDate) return a.prazoDate-b.prazoDate;
+                      if (a.prazoDate) return -1;
+                      if (b.prazoDate) return 1;
+                      return 0;
+                    });
+                  if (!itens.length) return null;
+                  return html`
+                    <div key=${g.key}>
+                      <!-- header do grupo de prazo -->
+                      <div style=${"display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:8px 12px;background:"+g.bg+";border:1px solid "+g.border+";border-radius:10px"}>
+                        <h3 style=${"font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:13px;color:"+g.cor+";margin:0"}>${g.label}</h3>
+                        <span style=${"font-size:11px;color:"+g.cor+";opacity:.7"}>${g.desc}</span>
+                        <span style=${"margin-left:auto;font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:13px;color:"+g.cor}>${itens.length}</span>
+                      </div>
+                      <!-- itens -->
+                      <div style="display:flex;flex-direction:column;gap:6px">
+                        ${itens.map(e=>html`
+                          <div key=${e.id}>
+                            <div style="display:flex;gap:8px;align-items:center;margin-bottom:3px">
+                              <span style="font-size:10px;color:#9193A0;font-weight:600">
+                                📁 ${e.nome_projeto}
+                              </span>
+                              ${e.responsavel?html`<span style="font-size:10px;color:#009FCF;font-weight:600">👤 ${e.responsavel}</span>`:null}
+                              <span style="font-size:10px;color:#C0C4CC"> · ${e.fase||"Fase 1"}</span>
+                            </div>
+                            ${EtapaRow({e})}
+                          </div>`)}
+                      </div>
+                    </div>`;
+                })}
+              </div>`;
+          })()}`}
       </div>
     </div>`;
 }
