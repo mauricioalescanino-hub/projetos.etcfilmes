@@ -2600,8 +2600,14 @@ function App() {
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                   <div>
                     <label class="section-label" style="display:block">Nome do colaborador *</label>
-                    <input type="text" value=${newNi.nome_colaborador} onChange=${e=>setNewNi(p=>({...p,nome_colaborador:e.target.value}))} placeholder="Ex: Ana Carolina Lima"
-                      style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />
+                    ${membros.length>0 ? html`
+                      <select value=${newNi.nome_colaborador} onChange=${e=>setNewNi(p=>({...p,nome_colaborador:e.target.value}))}
+                        style="width:100%;padding:9px 26px 9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;cursor:pointer;box-sizing:border-box">
+                        <option value="">Selecionar colaborador...</option>
+                        ${membros.map(m=>html`<option key=${m.id} value=${m.nome}>${m.nome}${m.area?" · "+m.area:""}</option>`)}
+                      </select>` : html`
+                      <input type="text" value=${newNi.nome_colaborador} onChange=${e=>setNewNi(p=>({...p,nome_colaborador:e.target.value}))} placeholder="Ex: Ana Carolina Lima"
+                        style="width:100%;padding:9px 12px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:8px;color:#1C1C1C;font-size:13px;outline:none;box-sizing:border-box" />`}
                   </div>
                   <div>
                     <label class="section-label" style="display:block">Área *</label>
@@ -2895,10 +2901,37 @@ function App() {
                 </div>
                 <div>
                   <label class="section-label" style="display:block">Participantes</label>
-                  <textarea value=${newSq.membros} onChange=${e=>setNewSq(p=>({...p,membros:e.target.value}))}
-                    placeholder="Ex: Natalia, Eduardo, Camila"
-                    rows="2"
-                    style="width:100%;padding:10px 14px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;color:#1C1C1C;font-size:13px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>
+                  ${membros.length>0 ? html`
+                    <div style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;border:1px solid #E8ECF1;border-radius:10px;padding:8px;background:#F7F9FC">
+                      ${membros.map(m=>{
+                        const selecionados = (newSq.membros||"").split(",").map(s=>s.trim()).filter(Boolean);
+                        const marcado = selecionados.includes(m.nome);
+                        return html`
+                          <label key=${m.id} style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;cursor:pointer;background:${marcado?"#E5F6FB":"transparent"};transition:background .1s"
+                            onMouseEnter=${e=>{ if(!marcado) e.currentTarget.style.background="#F1F5F9"; }}
+                            onMouseLeave=${e=>{ if(!marcado) e.currentTarget.style.background="transparent"; }}>
+                            <input type="checkbox" checked=${marcado}
+                              onChange=${e=>{
+                                const atual = (newSq.membros||"").split(",").map(s=>s.trim()).filter(Boolean);
+                                const novo  = e.target.checked
+                                  ? [...atual, m.nome]
+                                  : atual.filter(n=>n!==m.nome);
+                                setNewSq(p=>({...p,membros:novo.join(", ")}));
+                              }}
+                              style="accent-color:#009FCF;width:14px;height:14px;cursor:pointer;flex-shrink:0" />
+                            <div style="flex:1;min-width:0">
+                              <span style="font-size:12px;font-weight:600;color:#1C1C1C">${m.nome}</span>
+                              ${m.area ? html`<span style="font-size:10px;color:#9193A0;margin-left:6px">${m.area}${m.cargo?" · "+m.cargo:""}</span>` : null}
+                            </div>
+                          </label>`;
+                      })}
+                    </div>
+                    ${newSq.membros ? html`<p style="font-size:11px;color:#009FCF;margin:2px 0 0">✓ ${newSq.membros}</p>` : null}
+                  ` : html`
+                    <textarea value=${newSq.membros} onChange=${e=>setNewSq(p=>({...p,membros:e.target.value}))}
+                      placeholder="Ex: Natalia, Eduardo, Camila"
+                      rows="2"
+                      style="width:100%;padding:10px 14px;background:#F7F9FC;border:1px solid #E8ECF1;border-radius:10px;color:#1C1C1C;font-size:13px;outline:none;resize:vertical;box-sizing:border-box;font-family:'Inter',sans-serif"></textarea>`}
                 </div>
                 <button onClick=${createSquad} disabled=${!newSq.nome.trim()}
                   style=${"width:100%;padding:11px;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Plus Jakarta Sans',sans-serif;transition:all .15s;"+(newSq.nome.trim()?"background:#009FCF;color:#fff":"background:#F1F5F9;color:#C0C4CC;cursor:not-allowed")}>
