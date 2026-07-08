@@ -1252,6 +1252,283 @@ Se a iniciativa é uma Tarefa simples, o plano inteiro deve caber em 7 dias. Nã
     </div>`;
 }
 
+/* ─── DASHBOARD VIEW ─────────────────────────────────────── */
+function DashboardView({ iniciativas, clusters, onAbrirProjeto }) {
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+
+  /* ── métricas gerais ── */
+  const total      = iniciativas.length;
+  const porStatus  = STATUS_OPTS.map(s=>({ label:s, n:iniciativas.filter(i=>i.status===s).length }));
+  const porArea    = AREAS.map(a=>({ label:a, n:iniciativas.filter(i=>i.area===a).length })).filter(a=>a.n>0).sort((a,b)=>b.n-a.n);
+  const porOKR     = OKRS.map(o=>({ label:o, n:iniciativas.filter(i=>i.okr===o).length }));
+  const porTipo    = [...new Set(iniciativas.map(i=>i.classificacao||"Projeto"))];
+  const concluidas = iniciativas.filter(i=>i.status==="Concluida").length;
+  const emDes      = iniciativas.filter(i=>i.status==="Em Desenvolvimento").length;
+  const aprovadas  = iniciativas.filter(i=>i.status==="Aprovada").length;
+  const pctConc    = total ? Math.round(concluidas/total*100) : 0;
+
+  /* ── todas as etapas ── */
+  const todasEtapas = iniciativas.flatMap(ini => {
+    const nomeP = ini.declaracao_visao?.titulo?.trim() || ini.problema?.substring(0,45) || "#"+String(ini.num).padStart(2,"0");
+    return (ini.planejamento||[]).map(e=>({...e, nome_projeto:nomeP, iniciativa_id:ini.id, area:ini.area,
+      prazoDate: e.prazo ? new Date(e.prazo+"T00:00:00") : null }));
+  });
+  const etapasAtrasadas = todasEtapas.filter(e=>e.prazoDate&&e.prazoDate<hoje&&e.status!=="Concluído");
+  const etapasHoje      = todasEtapas.filter(e=>e.prazoDate&&e.prazoDate.getTime()===hoje.getTime()&&e.status!=="Concluído");
+
+  /* ── projetos mais atrasados ── */
+  const projAtrasados = useMemo(()=>{
+    const map = {};
+    etapasAtrasadas.forEach(e=>{
+      if (!map[e.iniciativa_id]) map[e.iniciativa_id] = { nome:e.nome_projeto, id:e.iniciativa_id, atrasadas:0, maxDias:0 };
+      const dias = Math.ceil((hoje-e.prazoDate)/86400000);
+      map[e.iniciativa_id].atrasadas++;
+      map[e.iniciativa_id].maxDias = Math.max(map[e.iniciativa_id].maxDias, dias);
+    });
+    return Object.values(map).sort((a,b)=>b.maxDias-a.maxDias).slice(0,6);
+  },[etapasAtrasadas]);
+
+  /* ── avanço por OKR ── */
+  const okrStats = OKRS.map(okr=>{
+    const ini = iniciativas.filter(i=>i.okr===okr);
+    const conc = ini.filter(i=>i.status==="Concluida").length;
+    const emD  = ini.filter(i=>i.status==="Em Desenvolvimento").length;
+    return { okr, total:ini.length, conc, emD, pct: ini.length ? Math.round((conc+emD*0.5)/ini.length*100) : 0 };
+  });
+
+  /* ── status das atividades ── */
+  const ativStats = {
+    total:      todasEtapas.length,
+    concluidas: todasEtapas.filter(e=>e.status==="Concluído").length,
+    andamento:  todasEtapas.filter(e=>e.status==="Em andamento").length,
+    atrasadas:  etapasAtrasadas.length,
+    hoje:       etapasHoje.length,
+  };
+
+  /* ── helpers visuais ── */
+  const STA_CLR = { "Backlog":"#94A3B8","Em Analise":"#D97706","Aprovada":"#0369A1","Em Desenvolvimento":"#6D28D9","Concluida":"#00BE8C" };
+  const OKR_CLR = { "OKR 1 Receita":"#00BE8C","OKR 2 Margem":"#6D28D9","Transversal":"#009FCF" };
+  const AREA_CLR = ["#009FCF","#00BE8C","#F73A60","#F5BC50","#8B5CF6","#EC4899","#F97316","#14B8A6"];
+  const aClr = (a) => AREA_CLR[AREAS.indexOf(a)%AREA_CLR.length]||"#009FCF";
+
+  /* ── barra horizontal de gráfico ── */
+  const HBar = ({label, val, total, color, onClick}) => {
+    const pct = total ? Math.round(val/total*100) : 0;
+    return html`
+      <div style="display:flex;align-items:center;gap:8px;cursor:${onClick?"pointer":"default"}"
+        onClick=${onClick||null}
+        onMouseEnter=${e=>{ if(onClick) e.currentTarget.style.opacity=".8"; }}
+        onMouseLeave=${e=>{ if(onClick) e.currentTarget.style.opacity="1"; }}>
+        <span style="font-size:11px;color:#4A4A4A;width:120px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</span>
+        <div style="flex:1;height:20px;background:#F1F5F9;border-radius:6px;overflow:hidden">
+          <div style=${"height:100%;background:"+color+";border-radius:6px;width:"+pct+"%25;transition:width .4s ease;display:flex;align-items:center;padding-left:6px;min-width:"+(val>0?"20px":"0")}>
+            ${val>0?html`<span style="font-size:10px;font-weight:700;color:#fff;white-space:nowrap">${val}</span>`:null}
+          </div>
+        </div>
+        <span style="font-size:10px;color:#9193A0;width:30px;text-align:right;flex-shrink:0">${pct}%</span>
+      </div>`;
+  };
+
+  /* ── donut simples SVG ── */
+  const Donut = ({pct, color, size=80}) => {
+    const r = 28; const circ = 2*Math.PI*r;
+    const dash = circ * pct/100;
+    return html`
+      <svg width=${size} height=${size} viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r=${r} fill="none" stroke="#F1F5F9" stroke-width="8"/>
+        <circle cx="32" cy="32" r=${r} fill="none" stroke=${color} stroke-width="8"
+          stroke-dasharray="${dash} ${circ}" stroke-dashoffset=${circ/4}
+          stroke-linecap="round" style="transition:stroke-dasharray .6s ease"/>
+        <text x="32" y="36" text-anchor="middle" font-size="13" font-weight="800" fill=${color} font-family="Plus Jakarta Sans,sans-serif">${pct}%</text>
+      </svg>`;
+  };
+
+  /* ── card de stat ── */
+  const StatCard = ({n, label, color, bg, sub}) => html`
+    <div style=${"background:"+bg+";border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:4px"}>
+      <span style=${"font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:28px;color:"+color+";line-height:1"}>${n}</span>
+      <span style="font-size:12px;color:#4A4A4A;font-weight:600">${label}</span>
+      ${sub?html`<span style="font-size:10px;color:#9193A0">${sub}</span>`:null}
+    </div>`;
+
+  return html`
+    <div style="display:flex;flex-direction:column;flex:1;background:#F7F9FC;overflow-y:auto;min-height:0">
+
+      <!-- título executivo -->
+      <div style="background:#fff;border-bottom:1px solid #E8ECF1;padding:16px 28px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div>
+          <h2 style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:18px;color:#1C1C1C;margin:0 0 2px">Dashboard Executivo</h2>
+          <p style="font-size:12px;color:#9193A0;margin:0">Visão geral · ${new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"})}</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          ${Dots()}
+          <span style="font-size:11px;font-weight:700;color:#009FCF;font-family:'Plus Jakarta Sans',sans-serif;letter-spacing:.06em;text-transform:uppercase">ETC Filmes · Iniciativas de IA</span>
+        </div>
+      </div>
+
+      <div style="padding:24px;display:flex;flex-direction:column;gap:24px">
+
+        <!-- ROW 1: stats principais -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">
+          ${StatCard({n:total,        label:"Total de iniciativas",      color:"#1C1C1C",  bg:"#fff",     sub:total+" cadastradas"})}
+          ${StatCard({n:concluidas,   label:"Concluídas",                color:"#065F46",  bg:"#EDFCF5",  sub:pctConc+"% do total"})}
+          ${StatCard({n:emDes,        label:"Em desenvolvimento",        color:"#5B21B6",  bg:"#F5F0FF",  sub:"em execução agora"})}
+          ${StatCard({n:aprovadas,    label:"Aprovadas",                 color:"#0369A1",  bg:"#EFF8FF",  sub:"aguardando início"})}
+          ${StatCard({n:ativStats.atrasadas, label:"Atividades atrasadas", color:"#F73A60", bg:"#FEE8ED", sub:ativStats.hoje+" vencem hoje"})}
+          ${StatCard({n:ativStats.total, label:"Total de atividades",    color:"#D97706",  bg:"#FFFBEB",  sub:ativStats.concluidas+" concluídas"})}
+        </div>
+
+        <!-- ROW 2: gráficos em duas colunas -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+          <!-- STATUS das iniciativas -->
+          <div style="background:#fff;border:1px solid #E8ECF1;border-radius:14px;padding:20px">
+            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0 0 16px">Iniciativas por Status</p>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              ${porStatus.map(s=>HBar({label:s.label, val:s.n, total, color:STA_CLR[s.label]||"#94A3B8"}))}
+            </div>
+          </div>
+
+          <!-- OKR progress -->
+          <div style="background:#fff;border:1px solid #E8ECF1;border-radius:14px;padding:20px">
+            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0 0 16px">Avanço por OKR</p>
+            <div style="display:flex;flex-direction:column;gap:16px">
+              ${okrStats.map(o=>html`
+                <div key=${o.okr} style="display:flex;align-items:center;gap:16px">
+                  ${Donut({pct:o.pct, color:OKR_CLR[o.okr]||"#009FCF"})}
+                  <div style="flex:1">
+                    <p style=${"font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:12px;color:"+(OKR_CLR[o.okr]||"#009FCF")+";margin:0 0 4px"}>${o.okr}</p>
+                    <p style="font-size:11px;color:#9193A0;margin:0 0 6px">${o.total} iniciativa${o.total!==1?"s":""} · ${o.conc} concluída${o.conc!==1?"s":""} · ${o.emD} em andamento</p>
+                    <div style="height:6px;background:#F1F5F9;border-radius:999px;overflow:hidden">
+                      <div style=${"height:100%;background:"+(OKR_CLR[o.okr]||"#009FCF")+";border-radius:999px;width:"+o.pct+"%25"}></div>
+                    </div>
+                  </div>
+                </div>`)}
+            </div>
+          </div>
+        </div>
+
+        <!-- ROW 3: Área + Atividades -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+          <!-- ÁREA -->
+          <div style="background:#fff;border:1px solid #E8ECF1;border-radius:14px;padding:20px">
+            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0 0 16px">Iniciativas por Área</p>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              ${porArea.map(a=>HBar({label:a.label, val:a.n, total, color:aClr(a.label)}))}
+            </div>
+          </div>
+
+          <!-- STATUS ATIVIDADES -->
+          <div style="background:#fff;border:1px solid #E8ECF1;border-radius:14px;padding:20px">
+            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0 0 16px">Status das Atividades</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+              ${[
+                ["Concluídas",    ativStats.concluidas, "#00BE8C","#EDFCF5"],
+                ["Em andamento",  ativStats.andamento,  "#D97706","#FFFBEB"],
+                ["Atrasadas",     ativStats.atrasadas,  "#F73A60","#FEE8ED"],
+                ["Vencem hoje",   ativStats.hoje,       "#C2410C","#FFF4ED"],
+              ].map(([l,n,c,b])=>html`
+                <div style=${"background:"+b+";border-radius:10px;padding:12px;text-align:center"}>
+                  <p style=${"font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:22px;color:"+c+";margin:0;line-height:1"}>${n}</p>
+                  <p style="font-size:10px;color:#9193A0;margin:4px 0 0">${l}</p>
+                </div>`)}
+            </div>
+            <!-- barra de progresso geral das atividades -->
+            <div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span style="font-size:11px;color:#9193A0">Progresso geral das atividades</span>
+                <span style="font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:700;color:#009FCF">
+                  ${ativStats.total ? Math.round(ativStats.concluidas/ativStats.total*100) : 0}%
+                </span>
+              </div>
+              <div style="height:8px;background:#F1F5F9;border-radius:999px;overflow:hidden">
+                <div style=${"height:100%;background:#009FCF;border-radius:999px;width:"+(ativStats.total?Math.round(ativStats.concluidas/ativStats.total*100):0)+"%25"}></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ROW 4: Projetos com mais atrasos -->
+        ${projAtrasados.length ? html`
+          <div style="background:#fff;border:1px solid #E8ECF1;border-radius:14px;padding:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+              <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0">⚠ Projetos com Atividades Atrasadas</p>
+              <span style="font-size:11px;color:#9193A0">${projAtrasados.length} projeto${projAtrasados.length!==1?"s":""} com atraso</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">
+              ${projAtrasados.map(p=>html`
+                <div key=${p.id}
+                  onClick=${()=>onAbrirProjeto(p.id)}
+                  style="display:flex;align-items:center;gap:10px;padding:12px;background:#FFF5F5;border:1px solid #FECDD3;border-radius:10px;cursor:pointer;transition:all .15s"
+                  onMouseEnter=${e=>{ e.currentTarget.style.background="#FEE8ED"; e.currentTarget.style.borderColor="#F73A60"; }}
+                  onMouseLeave=${e=>{ e.currentTarget.style.background="#FFF5F5"; e.currentTarget.style.borderColor="#FECDD3"; }}>
+                  <div style="flex:1;min-width:0">
+                    <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:12px;color:#1C1C1C;margin:0 0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.nome}</p>
+                    <p style="font-size:10px;color:#9193A0;margin:0">${p.atrasadas} atividade${p.atrasadas!==1?"s":""} atrasada${p.atrasadas!==1?"s":""}</p>
+                  </div>
+                  <span style="background:#F73A60;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;white-space:nowrap;flex-shrink:0">
+                    +${p.maxDias}d
+                  </span>
+                </div>`)}
+            </div>
+          </div>` : null}
+
+        <!-- ROW 5: Iniciativas recentes por status (top 5 Em Desenvolvimento) -->
+        <div style="background:#fff;border:1px solid #E8ECF1;border-radius:14px;padding:20px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <p style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;color:#1C1C1C;margin:0">🚀 Em Desenvolvimento agora</p>
+            <span style="font-size:11px;color:#9193A0">${emDes} projeto${emDes!==1?"s":""}</span>
+          </div>
+          ${emDes===0 ? html`
+            <p style="font-size:13px;color:#9193A0;text-align:center;padding:16px 0">Nenhuma iniciativa em desenvolvimento no momento.</p>` : html`
+            <div style="display:flex;flex-direction:column;gap:8px">
+              ${iniciativas.filter(i=>i.status==="Em Desenvolvimento").map(i=>{
+                const etapas  = i.planejamento||[];
+                const conc    = etapas.filter(e=>e.status==="Concluído").length;
+                const pctP    = etapas.length ? Math.round(conc/etapas.length*100) : 0;
+                const atrasos = etapas.filter(e=>e.prazoDate&&new Date(e.prazo+"T00:00:00")<hoje&&e.status!=="Concluído").length;
+                const cl      = clusters.find(c=>c.id===i.cluster_id);
+                return html`
+                  <div key=${i.id}
+                    onClick=${()=>onAbrirProjeto(i.id)}
+                    style="display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #E8ECF1;border-radius:10px;cursor:pointer;transition:all .15s"
+                    onMouseEnter=${e=>{ e.currentTarget.style.background="#F7F9FC"; e.currentTarget.style.borderColor="#009FCF"; }}
+                    onMouseLeave=${e=>{ e.currentTarget.style.background="#fff"; e.currentTarget.style.borderColor="#E8ECF1"; }}>
+                    <!-- info -->
+                    <div style="flex:1;min-width:0">
+                      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap">
+                        <span style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:12px;color:#1C1C1C;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px">
+                          ${i.declaracao_visao?.titulo?.trim()||i.problema?.substring(0,50)||"#"+String(i.num).padStart(2,"0")}
+                        </span>
+                        <span style="font-size:10px;color:#9193A0;background:#F1F5F9;padding:1px 6px;border-radius:6px;flex-shrink:0">${i.area}</span>
+                        ${cl?html`<span style=${"font-size:10px;color:#fff;background:"+cl.cor+";padding:1px 6px;border-radius:6px;flex-shrink:0"}>${cl.nome}</span>`:null}
+                      </div>
+                      <!-- barra progresso atividades -->
+                      ${etapas.length ? html`
+                        <div style="display:flex;align-items:center;gap:6px">
+                          <div style="flex:1;height:5px;background:#F1F5F9;border-radius:999px;overflow:hidden">
+                            <div style=${"height:100%;background:#009FCF;border-radius:999px;width:"+pctP+"%25"}></div>
+                          </div>
+                          <span style="font-size:10px;color:#9193A0;white-space:nowrap">${conc}/${etapas.length} atividades · ${pctP}%</span>
+                        </div>` : html`<span style="font-size:10px;color:#C0C4CC">Sem atividades cadastradas</span>`}
+                    </div>
+                    <!-- badges direita -->
+                    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+                      ${atrasos>0?html`<span style="background:#FEE8ED;color:#F73A60;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;font-family:'Plus Jakarta Sans',sans-serif">⚠ ${atrasos} atrasada${atrasos!==1?"s":""}</span>`:null}
+                      <span style=${"font-family:'Plus Jakarta Sans',sans-serif;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;"+(i.prioridade==="Alta"?"background:#FEE8ED;color:#F73A60":i.prioridade==="Media"?"background:#FFFBEB;color:#D97706":"background:#F1F5F9;color:#475569")}>
+                        ${i.prioridade}
+                      </span>
+                    </div>
+                  </div>`;
+              })}
+            </div>`}
+        </div>
+
+      </div>
+    </div>`;
+}
+
 /* ─── DESEMPENHO VIEW ────────────────────────────────────── */
 function DesempenhoView({ iniciativas, onAbrirProjeto }) {
   const [ordenar,    setOrdenar]    = useState("atraso"); // "atraso"|"entregues"|"nome"
@@ -2417,6 +2694,10 @@ function App() {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="10" y2="6"/><line x1="6" y1="12" x2="16" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/></svg>
             Gantt
           </button>
+          <button class=${"btn-nav "+(view==="dashboard"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("dashboard")}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Dashboard
+          </button>
           <button class=${"btn-nav "+(view==="desempenho"?"btn-nav-active":"btn-nav-default")} onClick=${()=>setView("desempenho")}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             Desempenho
@@ -2488,7 +2769,7 @@ function App() {
       </div>
 
       <!-- GRID -->
-      <div class="flex-1 overflow-auto px-6 py-6" style=${view==="atividades"||view==="gantt"||view==="desempenho"?"display:none":""}>
+      <div class="flex-1 overflow-auto px-6 py-6" style=${view==="atividades"||view==="gantt"||view==="desempenho"||view==="dashboard"?"display:none":""}>
         ${view==="lista" ? html`
           ${(()=>{
             /* ── sem agrupamento ── */
@@ -2643,6 +2924,7 @@ function App() {
       />` : null}
       ${view==="gantt" ? html`<${GanttView} iniciativas=${iniciativas} onAbrirProjeto=${(id)=>{ setDetailId(id); setDetailTab("planejamento"); setView("lista"); }} />` : null}
       ${view==="desempenho" ? html`<${DesempenhoView} iniciativas=${iniciativas} onAbrirProjeto=${(id)=>{ setDetailId(id); setDetailTab("planejamento"); setView("lista"); }} />` : null}
+      ${view==="dashboard" ? html`<${DashboardView} iniciativas=${iniciativas} clusters=${clusters} onAbrirProjeto=${(id)=>{ setDetailId(id); setDetailTab("iniciativa"); setView("lista"); }} />` : null}
 
       <!-- DETAIL MODAL -->
       ${detail ? html`
