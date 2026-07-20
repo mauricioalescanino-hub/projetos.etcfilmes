@@ -2463,17 +2463,95 @@ function App() {
   };
 
   const exportCSV = () => {
-    const hdr = ["#","Nome","Area","Classificacao","Tipo","OKR","Complexidade","Prioridade","Status","Tempo Manual","Apoio AI Lead","Cluster","SMART","Plano","Problema"];
+    const esc = (v) => '"'+(String(v||"").replace(/"/g,'""'))+'"';
+    const nl  = (v) => String(v||"").replace(/\n/g," | ").replace(/\r/g,"");
+
+    const hdr = [
+      "#","Colaborador","Área","Classificação","Tipo","OKR","Complexidade","Prioridade","Status",
+      "Tempo Manual","Apoio AI Lead","Cluster","Squad",
+      "Problema","Impacto","Notas",
+      // SMART
+      "SMART Gerado","SMART - Específico","SMART - Mensurável","SMART - Atingível","SMART - Relevante","SMART - Temporal",
+      // Declaração de Visão
+      "Visão - Título","Visão - Sponsor","Visão - PM","Visão - Status","Visão - Deadline","Visão - Objetivo","Visão - KPIs","Visão - Justificativa","Visão - Equipe","Visão - Premissas","Visão - Restrições","Visão - Escopo Excluído",
+      // Planejamento
+      "Qtd Atividades","Atividades Concluídas","% Conclusão","Atividades (lista)",
+      // Comentários
+      "Qtd Comentários","Comentários (lista)",
+    ];
+
     const rows = iniciativas.map(i=>{
       const cl = clusters.find(c=>c.id===i.cluster_id);
-      return [i.num,i.nome_colaborador,i.area,i.classificacao,i.tipo,i.okr,i.complexidade,i.prioridade,i.status,i.tempo_manual,i.apoio_ai_lead,cl?.nome||"",i.analise_smart?"Sim":"Nao",i.planejamento?.length||0,'"'+(i.problema||"").replace(/"/g,'""')+'"'].join(",");
+      const sq = squads.find(s=>s.id===i.squad_id);
+      const sm = i.analise_smart;
+      const dv = i.declaracao_visao||{};
+      const etapas = i.planejamento||[];
+      const conc   = etapas.filter(e=>e.status==="Concluído").length;
+      const pctP   = etapas.length ? Math.round(conc/etapas.length*100) : 0;
+      const listaAt = etapas.map(e=>[
+        e.fase||"",e.titulo||"",e.responsavel||"",e.prazo||"",e.status||"",
+        e.data_conclusao?"concluído em "+e.data_conclusao:"",
+      ].filter(Boolean).join(":")).join(" / ");
+      const comts   = i.comentarios||[];
+      const listaComt = comts.map(c=>c.autor+": "+nl(c.texto)).join(" / ");
+
+      return [
+        i.num,
+        esc(i.nome_colaborador),
+        esc(i.area),
+        esc(i.classificacao),
+        esc(i.tipo),
+        esc(i.okr),
+        i.complexidade||"",
+        esc(i.prioridade),
+        esc(i.status),
+        esc(i.tempo_manual),
+        esc(i.apoio_ai_lead),
+        esc(cl?.nome||""),
+        esc(sq?.nome||""),
+        esc(nl(i.problema)),
+        esc(nl(i.impacto)),
+        esc(nl(i.notas)),
+        // SMART
+        sm?"Sim":"Não",
+        esc(nl(sm?.especifico||"")),
+        esc(nl(sm?.mensuravel||"")),
+        esc(nl(sm?.atingivel||"")),
+        esc(nl(sm?.relevante||"")),
+        esc(nl(sm?.temporal||"")),
+        // Declaração de Visão
+        esc(nl(dv.titulo||"")),
+        esc(nl(dv.sponsor||"")),
+        esc(nl(dv.pm||"")),
+        esc(nl(dv.status_proj||"")),
+        esc(nl(dv.deadline||"")),
+        esc(nl(dv.objetivo||"")),
+        esc(nl(dv.kpis||"")),
+        esc(nl(dv.justificativa||"")),
+        esc(nl(dv.equipe||"")),
+        esc(nl(dv.premissas||"")),
+        esc(nl(dv.restricoes||"")),
+        esc(nl(dv.escopo||"")),
+        // Planejamento
+        etapas.length,
+        conc,
+        pctP+"%",
+        esc(listaAt),
+        // Comentários
+        comts.length,
+        esc(listaComt),
+      ].join(",");
     });
-    const csv = [hdr.join(","),...rows].join("\n");
-    const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href=url; a.download="iniciativas-ia-etcfilmes.csv";
+
+    const bom = "\uFEFF"; // UTF-8 BOM para Excel reconhecer acentos
+    const csv = bom + [hdr.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url;
+    a.download = "painel-iniciativas-etcfilmes-"+new Date().toISOString().split("T")[0]+".csv";
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(url),3000);
+    setTimeout(()=>URL.revokeObjectURL(url), 3000);
   };
 
   const patchCluster = async (cid, fields) => {
